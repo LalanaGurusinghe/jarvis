@@ -1,0 +1,19 @@
+{
+  "name": "Jarvis",
+  "short_name": "Jarvis",
+  "description": "A personal voice assistant for your tablet.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#05080b",
+  "theme_color": "#05080b",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

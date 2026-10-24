@@ -1,0 +1,983 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Jarvis</title>
+<meta name="description" content="A personal voice assistant for your tablet.">
+<meta name="theme-color" content="#05080b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Jarvis">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one-screen tablet console. Reactor core + spoken transcript on the left, systems rail (weather, timers, tasks, memory) on the right; stacks on narrow/portrait screens. Single deliberate dark HUD look. */
+:root{
+  --bg:#05080b;
+  --panel:#0a1016;
+  --raise:#101922;
+  --line:#1b2833;
+  --fg:#d5e3e9;
+  --dim:#7b909b;
+  --accent:#58d3e8;
+  --accent-ink:#03161b;
+  --warm:#efb14a;
+  --alert:#ff7d6e;
+  --ok:#6fdc9a;
+  --display:"Saira Semi Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.5;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{max-width:1400px;margin:0 auto;min-height:100%;display:grid;grid-template-rows:auto 1fr auto;gap:12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px}
+
+.top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:10px}
+.brand{display:flex;flex-direction:column;line-height:1.05;min-width:0}
+.brand b{font-family:var(--display);font-weight:700;font-size:22px;letter-spacing:.28em;text-transform:uppercase}
+.brand span{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
+.chip{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--dim);white-space:nowrap}
+.chip.live{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.chip.think{color:var(--warm);border-color:color-mix(in srgb,var(--warm) 45%,transparent)}
+.spacer{flex:1}
+.clock{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--dim);font-size:13px}
+.btn{background:var(--raise);border:1px solid var(--line);border-radius:10px;padding:7px 12px;cursor:pointer;font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:500}
+
+.main{display:grid;gap:16px;min-height:0}
+.stage{display:flex;flex-direction:column;min-height:0;gap:10px}
+.core{position:relative;display:grid;place-items:center;height:230px;cursor:pointer;border:0;background:none;padding:0}
+.core canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.core .hint{position:absolute;bottom:4px;left:0;right:0;text-align:center;font-family:var(--mono);font-size:12px;color:var(--dim);letter-spacing:.05em}
+.notice{border:1px solid color-mix(in srgb,var(--warm) 40%,var(--line));background:color-mix(in srgb,var(--warm) 8%,var(--panel));border-radius:10px;padding:10px 12px;font-size:13.5px;display:flex;gap:10px;align-items:flex-start}
+.notice button{margin-left:auto;background:none;border:0;color:var(--dim);cursor:pointer}
+
+.log{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:4px 2px 8px}
+.msg{display:grid;grid-template-columns:64px minmax(0,1fr);gap:10px;align-items:baseline}
+.who{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);text-align:right;padding-top:2px}
+.msg.ai .who{color:var(--accent)}
+.say{max-width:65ch;overflow-wrap:anywhere;white-space:pre-wrap}
+.msg.user .say{color:var(--dim)}
+.msg.pending .say{color:var(--warm);font-family:var(--mono);font-size:13px}
+.card{display:inline-flex;flex-direction:column;gap:2px;margin:6px 8px 0 0;border:1px solid var(--line);background:var(--raise);border-radius:10px;padding:8px 12px;text-decoration:none;color:var(--fg);max-width:100%}
+.card small{font-family:var(--mono);color:var(--accent);font-size:11px;overflow-wrap:anywhere}
+.card:hover{border-color:var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;white-space:normal}
+.suggest{background:transparent;border:1px dashed var(--line);border-radius:999px;padding:5px 12px;font-size:13px;color:var(--dim);cursor:pointer}
+.suggest:hover{color:var(--fg);border-color:var(--accent)}
+
+.rail{display:flex;flex-direction:column;gap:12px;min-height:0}
+.sys{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-height:0}
+.sys h2{margin:0;display:flex;align-items:baseline;gap:8px;font-family:var(--display);font-weight:600;font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim)}
+.sys h2 em{font-style:normal;font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--accent);margin-left:auto}
+.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;overflow-y:auto}
+.list li{display:flex;align-items:center;gap:10px;min-width:0}
+.list li .t{flex:1;min-width:0;overflow-wrap:anywhere;font-size:14px}
+.list li.done .t{color:var(--dim);text-decoration:line-through}
+.x{background:none;border:0;color:var(--dim);cursor:pointer;font-family:var(--mono);font-size:13px;padding:2px 6px;border-radius:6px}
+.x:hover{color:var(--alert)}
+.tick{appearance:none;-webkit-appearance:none;width:18px;height:18px;border:1.5px solid var(--dim);border-radius:5px;flex:none;cursor:pointer;display:grid;place-items:center;margin:0}
+.tick:checked{background:var(--accent);border-color:var(--accent)}
+.tick:checked::after{content:"";width:8px;height:4px;border:2px solid var(--accent-ink);border-top:0;border-right:0;transform:rotate(-45deg) translate(1px,-1px)}
+.timer{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--warm);font-size:20px;flex:none}
+.empty{font-size:13px;color:var(--dim);margin:0}
+.empty q{color:var(--fg);quotes:"“" "”"}
+.addrow{display:flex;gap:8px}
+.addrow input{flex:1;min-width:0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:14px}
+.wx{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.wx .temp{font-family:var(--display);font-size:34px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+.wx .desc{font-size:14px}
+.wx .meta{font-family:var(--mono);font-size:12px;color:var(--dim);width:100%}
+
+.composer{position:sticky;bottom:0;background:var(--bg);display:flex;gap:10px;align-items:center;padding-top:8px;padding-bottom:env(safe-area-inset-bottom,0px);border-top:1px solid var(--line)}
+.mic{width:56px;height:56px;flex:none;border-radius:50%;border:1.5px solid var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--bg));cursor:pointer;display:grid;place-items:center}
+.mic svg{width:22px;height:22px;fill:var(--accent)}
+.mic.on{background:var(--accent)}
+.mic.on svg{fill:var(--accent-ink)}
+.mic[disabled]{opacity:.4;cursor:not-allowed}
+.composer input{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 14px;font-size:16px}
+.composer input::placeholder{color:var(--dim)}
+.send{background:var(--accent);color:var(--accent-ink);border:0;border-radius:12px;padding:13px 16px;font-family:var(--display);font-weight:700;letter-spacing:.14em;text-transform:uppercase;cursor:pointer}
+.stop{background:transparent;color:var(--alert);border:1px solid color-mix(in srgb,var(--alert) 50%,transparent);border-radius:12px;padding:12px 14px;font-family:var(--display);font-weight:600;letter-spacing:.14em;text-transform:uppercase;cursor:pointer}
+
+.veil{position:fixed;inset:0;background:color-mix(in srgb,var(--bg) 78%,transparent);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);display:grid;place-items:center;z-index:20;padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.sheet{width:min(600px,100%);max-height:100%;overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 18px 20px;display:flex;flex-direction:column;gap:14px}
+.sheet h3{margin:0;font-family:var(--display);font-weight:700;letter-spacing:.2em;text-transform:uppercase;font-size:16px}
+.sheet h4{margin:6px 0 0;font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.field{display:grid;grid-template-columns:140px minmax(0,1fr);gap:10px;align-items:center}
+.field label{font-size:13px;color:var(--dim)}
+.field input[type=text],.field input[type=password],.field select{background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px;width:100%;min-width:0}
+.field input[type=range]{width:100%;accent-color:var(--accent)}
+.help{font-size:12.5px;color:var(--dim);margin:0}
+.help a{color:var(--accent)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.danger{color:var(--alert)}
+
+/* system scan */
+.scan{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 14px;margin:0;font-size:14px}
+.scan dt{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);padding-top:3px}
+.scan dd{margin:0;overflow-wrap:anywhere}
+.scan dd .st{font-family:var(--mono);font-size:11px;margin-left:6px}
+.st.ok{color:var(--ok)} .st.no{color:var(--alert)} .st.meh{color:var(--warm)}
+.adapt{margin:0;padding-left:18px;font-size:13.5px;display:flex;flex-direction:column;gap:4px}
+.boot .sheet{border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
+.boot .scan > *{animation:rise .35s ease both}
+@keyframes rise{from{opacity:.35;transform:translateY(3px)}to{opacity:1;transform:none}}
+
+@media (min-width:900px){
+  .app{height:100%}
+  .main{grid-template-columns:minmax(0,1fr) 340px}
+  .core{height:min(36vh,320px)}
+  .rail{overflow-y:auto}
+}
+@media (max-width:899px){
+  .log{overflow:visible}
+}
+@media (max-width:560px){ .field{grid-template-columns:1fr} }
+@media (prefers-reduced-motion:reduce){ .boot .scan > *{animation:none} }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><b id="brandName">Jarvis</b><span id="deviceLine">Personal assistant</span></div>
+    <span class="chip" id="stateChip">Standby</span>
+    <span class="chip" id="brainChip">Brain: offline</span>
+    <span class="spacer"></span>
+    <span class="clock" id="clock">--:--</span>
+    <button class="btn" id="installBtn" type="button" hidden>Install</button>
+    <button class="btn" id="briefBtn" type="button">Briefing</button>
+    <button class="btn" id="sysBtn" type="button">Systems</button>
+    <button class="btn" id="openSettings" type="button">Settings</button>
+  </header>
+
+  <main class="main">
+    <section class="stage" aria-label="Conversation">
+      <button class="core" id="core" type="button" aria-label="Tap to talk">
+        <canvas id="orb"></canvas>
+        <span class="hint" id="hint">Tap the core to talk, or type below</span>
+      </button>
+      <div class="notice" id="notice" hidden><span id="noticeText"></span><button type="button" id="noticeClose" aria-label="Dismiss">✕</button></div>
+      <div class="log" id="log" aria-live="polite"></div>
+    </section>
+
+    <aside class="rail" aria-label="Systems">
+      <section class="sys">
+        <h2>Weather <em id="wxWhere"></em></h2>
+        <div class="wx" id="wx"><p class="empty">Say <q>what's the weather</q> or tap <button class="btn" id="wxBtn" type="button">Check now</button></p></div>
+      </section>
+      <section class="sys">
+        <h2>Timers <em id="timerCount"></em></h2>
+        <ul class="list" id="timers"></ul>
+        <p class="empty" id="timersEmpty">No timers running. Try <q>set a 25 minute focus timer</q>.</p>
+      </section>
+      <section class="sys">
+        <h2>Tasks <em id="taskCount"></em></h2>
+        <ul class="list" id="tasks"></ul>
+        <p class="empty" id="tasksEmpty">Nothing on the list. Say <q>add call the bank to my tasks</q>.</p>
+        <form class="addrow" id="taskForm"><input id="taskInput" placeholder="Add a task" aria-label="New task"><button class="btn" type="submit">Add</button></form>
+      </section>
+      <section class="sys">
+        <h2>Memory <em id="memCount"></em></h2>
+        <ul class="list" id="memory"></ul>
+        <p class="empty" id="memoryEmpty">Facts it keeps about you. Say <q>remember that I take my coffee black</q>.</p>
+      </section>
+    </aside>
+  </main>
+
+  <form class="composer" id="composer">
+    <button class="mic" id="mic" type="button" aria-label="Speak"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2z"/></svg></button>
+    <input id="say" autocomplete="off" placeholder="Ask Jarvis anything" aria-label="Message">
+    <button class="stop" id="stop" type="button" hidden>Stop</button>
+    <button class="send" type="submit">Send</button>
+  </form>
+</div>
+
+<!-- startup scan -->
+<div class="veil boot" id="boot" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="bootTitle">
+    <h3 id="bootTitle">System scan</h3>
+    <dl class="scan" id="bootScan"></dl>
+    <h4>Tuned for this tablet</h4>
+    <ul class="adapt" id="bootAdapt"></ul>
+    <div class="row"><button class="btn primary" type="button" id="engage">Engage</button><span class="help">Tapping Engage switches on sound and speech.</span></div>
+  </div>
+</div>
+
+<!-- systems sheet -->
+<div class="veil" id="systems" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sysTitle">
+    <div class="row"><h3 id="sysTitle">Systems</h3><span class="spacer"></span><button class="btn" type="button" id="rescan">Rescan</button><button class="btn" type="button" id="closeSystems">Done</button></div>
+    <dl class="scan" id="sysScan"></dl>
+    <h4>Tuned for this tablet</h4>
+    <ul class="adapt" id="sysAdapt"></ul>
+    <h4>Permissions</h4>
+    <div class="row">
+      <button class="btn" type="button" id="permMic">Allow microphone</button>
+      <button class="btn" type="button" id="permNotif">Allow notifications</button>
+      <button class="btn" type="button" id="permLoc">Allow location</button>
+    </div>
+    <p class="help">Each button asks the tablet once. If you said no before, change it in the browser's site settings for this page.</p>
+  </div>
+</div>
+
+<!-- settings -->
+<div class="veil" id="settings" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="setTitle">
+    <div class="row"><h3 id="setTitle">Settings</h3><span class="spacer"></span><button class="btn" type="button" id="closeSettings">Done</button></div>
+
+    <h4>Brain</h4>
+    <div class="field"><label for="setBrain">Who answers</label>
+      <select id="setBrain">
+        <option value="auto">Automatic (whichever key is set)</option>
+        <option value="gemini">Google Gemini (free key)</option>
+        <option value="claude">Claude (Anthropic API key)</option>
+        <option value="offline">Offline commands only</option>
+      </select></div>
+    <div class="field"><label for="setKey">Gemini API key</label><input type="password" id="setKey" autocomplete="off" placeholder="AIza…"></div>
+    <div class="field"><label for="setModel">Gemini model</label><input type="text" id="setModel"></div>
+    <p class="help">Get a free Gemini key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.</p>
+    <div class="field"><label for="setCKey">Anthropic API key</label><input type="password" id="setCKey" autocomplete="off" placeholder="sk-ant-…"></div>
+    <div class="field"><label for="setCModel">Claude model</label><input type="text" id="setCModel"></div>
+    <p class="help">Claude API keys come from <a href="https://console.anthropic.com/" target="_blank" rel="noopener">the Claude Console</a> and are billed per use. Keys are stored only on this tablet and sent only to their own provider.</p>
+
+    <h4>Identity</h4>
+    <div class="field"><label for="setName">Assistant name</label><input type="text" id="setName"></div>
+    <div class="field"><label for="setUser">Your name</label><input type="text" id="setUser" placeholder="Optional"></div>
+    <div class="field"><label for="setAddress">Address me as</label><input type="text" id="setAddress" placeholder="sir"></div>
+
+    <h4>Voice</h4>
+    <div class="field"><label for="setVoice">Voice</label><select id="setVoice"></select></div>
+    <div class="field"><label for="setRate">Speed</label><input type="range" id="setRate" min="0.7" max="1.4" step="0.05"></div>
+    <div class="field"><label for="setPitch">Pitch</label><input type="range" id="setPitch" min="0.5" max="1.5" step="0.05"></div>
+    <div class="row"><button class="btn" type="button" id="testVoice">Test voice</button></div>
+    <div class="field"><label for="setWake">Wake word</label><div class="row"><input type="checkbox" id="setWake" class="tick"><span class="help" id="wakeHelp">Keep listening for the assistant's name while the app is open.</span></div></div>
+
+    <h4>Tablet</h4>
+    <div class="field"><label for="setAwake">Keep screen on</label><div class="row"><input type="checkbox" id="setAwake" class="tick"><span class="help">Stops the screen sleeping while the app is open, for a desk console.</span></div></div>
+    <div class="field"><label for="setBoot">Startup scan</label><div class="row"><input type="checkbox" id="setBoot" class="tick"><span class="help">Show the system scan each time the app opens.</span></div></div>
+    <div class="field"><label for="setCity">Weather city</label><input type="text" id="setCity" placeholder="Blank = use this tablet's location"></div>
+    <p class="help" id="installHelp"></p>
+
+    <h4>Data</h4>
+    <div class="row" id="wipeRow"><button class="btn danger" type="button" id="wipe">Clear tasks, memory and chat</button></div>
+    <div class="row" id="wipeConfirm" hidden><span class="help">This can't be undone.</span><button class="btn danger" type="button" id="wipeYes">Clear everything</button><button class="btn" type="button" id="wipeNo">Keep</button></div>
+    <p class="help">Version <span id="ver"></span></p>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const VERSION = "1.0.0";
+  const $ = (s) => document.querySelector(s);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem("jarvis." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem("jarvis." + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  const DEFAULTS = { name: "Jarvis", user: "", address: "sir", voice: "", rate: 1, pitch: 0.9, wake: false, awake: false, boot: true, city: "",
+    brain: "auto", geminiKey: "", geminiModel: "gemini-flash-latest", claudeKey: "", claudeModel: "claude-haiku-5-5" };
+  const S = {
+    settings: Object.assign({}, DEFAULTS, store.get("settings", {})),
+    tasks: store.get("tasks", []), memory: store.get("memory", []),
+    timers: store.get("timers", []).filter(t => t.end > Date.now()),
+    turns: store.get("turns", []), scan: null, perf: "full"
+  };
+  const save = () => { store.set("settings", S.settings); store.set("tasks", S.tasks); store.set("memory", S.memory); store.set("timers", S.timers); store.set("turns", S.turns.slice(-20)); };
+  const addr = () => (S.settings.address || "").trim() || "sir";
+  const uid = () => Math.random().toString(36).slice(2, 9);
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  /* ============ device scan ============ */
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const synth = window.speechSynthesis;
+  let battery = null;
+
+  function friendlyModel(model) {
+    if (!model) return "";
+    const m = model.trim();
+    if (/^SM-[XTP]/i.test(m)) return "Samsung Galaxy Tab (" + m + ")";
+    if (/^SM-/i.test(m)) return "Samsung Galaxy (" + m + ")";
+    if (/^TB-|^Lenovo/i.test(m)) return "Lenovo Tab (" + m + ")";
+    if (/^Pixel Tablet/i.test(m)) return "Google " + m;
+    if (/^(23|24|25|26)\d{3}/.test(m) || /^Redmi Pad|^Xiaomi Pad/i.test(m)) return "Xiaomi / Redmi Pad (" + m + ")";
+    if (/^OPD|^OnePlus/i.test(m)) return "OnePlus Pad (" + m + ")";
+    if (/^RMP|^realme/i.test(m)) return "realme Pad (" + m + ")";
+    if (/^(AGS|BAH|DBY|BTK|HEY)/i.test(m)) return "Huawei / Honor MatePad (" + m + ")";
+    return m;
+  }
+
+  async function scanDevice() {
+    const ua = navigator.userAgent || "";
+    const d = { os: "Unknown", device: "Unknown device", browser: "", platform: "other" };
+    const isIPad = /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    const isAndroid = /Android/i.test(ua);
+    if (isIPad || /iPhone/.test(ua)) {
+      d.platform = "ios";
+      d.device = isIPad ? "Apple iPad" : "Apple iPhone";
+      const v = ua.match(/OS (\d+)[_.](\d+)/) || ua.match(/Version\/(\d+)\.(\d+)/);
+      d.os = (isIPad ? "iPadOS " : "iOS ") + (v ? v[1] + "." + v[2] : "");
+      d.browser = /CriOS/.test(ua) ? "Chrome (iPad)" : /FxiOS/.test(ua) ? "Firefox (iPad)" : "Safari";
+    } else if (isAndroid) {
+      d.platform = "android";
+      const v = ua.match(/Android ([\d.]+)/); d.os = "Android " + (v ? v[1] : "");
+      const mm = ua.match(/Android [\d.]+; ([^;)]+)/); if (mm && mm[1] !== "K") d.device = friendlyModel(mm[1]);
+    } else if (/Windows/.test(ua)) { d.platform = "desktop"; d.os = "Windows"; d.device = "Windows PC or tablet"; }
+    else if (/Mac/.test(ua)) { d.platform = "desktop"; d.os = "macOS"; d.device = "Mac"; }
+    else if (/CrOS/.test(ua)) { d.platform = "desktop"; d.os = "ChromeOS"; d.device = "Chromebook"; }
+    else if (/Linux/.test(ua)) { d.platform = "desktop"; d.os = "Linux"; d.device = "Linux device"; }
+    // Chromium gives the exact model and OS version through client hints
+    try {
+      if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+        const h = await navigator.userAgentData.getHighEntropyValues(["model", "platformVersion", "fullVersionList"]);
+        if (h.model) d.device = friendlyModel(h.model);
+        if (d.platform === "android" && h.platformVersion) d.os = "Android " + h.platformVersion.split(".")[0];
+        const b = (h.fullVersionList || []).find(x => !/Not.?A.?Brand|Chromium/i.test(x.brand));
+        if (b) d.browser = b.brand + " " + b.version.split(".")[0];
+      }
+    } catch (e) {}
+    if (!d.browser) { const c = ua.match(/(SamsungBrowser|Edg|Firefox|Chrome)\/(\d+)/); if (c) d.browser = c[1].replace("Edg", "Edge").replace("SamsungBrowser", "Samsung Internet") + " " + c[2]; }
+
+    const w = Math.round(screen.width * (devicePixelRatio || 1)), h = Math.round(screen.height * (devicePixelRatio || 1));
+    d.screen = `${Math.max(w, h)} × ${Math.min(w, h)} px, ${Math.round((devicePixelRatio || 1) * 100) / 100}x density`;
+    d.cores = navigator.hardwareConcurrency || null;
+    d.ram = navigator.deviceMemory || null;
+    try { battery = battery || (navigator.getBattery ? await navigator.getBattery() : null); } catch (e) { battery = null; }
+    d.battery = battery ? { level: Math.round(battery.level * 100), charging: battery.charging } : null;
+    const c = navigator.connection;
+    d.network = (navigator.onLine ? "Online" : "Offline") + (c && c.effectiveType ? ", " + (c.type && c.type !== "unknown" ? c.type + " " : "") + c.effectiveType.toUpperCase() : "");
+    d.speechIn = !!SR;
+    d.speechOut = !!synth;
+    d.voices = synth ? synth.getVoices() : [];
+    d.voice = pickVoice(d.voices);
+    d.wakeLock = "wakeLock" in navigator;
+    d.notify = "Notification" in window && "serviceWorker" in navigator;
+    d.vibrate = "vibrate" in navigator;
+    d.geo = "geolocation" in navigator;
+    d.installed = matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches || navigator.standalone === true;
+    d.secure = window.isSecureContext;
+    try { if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) { const devs = await navigator.mediaDevices.enumerateDevices(); d.mics = devs.filter(x => x.kind === "audioinput").length; } } catch (e) {}
+    try { if (navigator.storage && navigator.storage.estimate) { const s = await navigator.storage.estimate(); d.storage = Math.round((s.quota || 0) / 1e9 * 10) / 10; } } catch (e) {}
+
+    // performance tier
+    let score = 0;
+    if (d.cores) score += d.cores >= 8 ? 2 : d.cores >= 6 ? 1 : 0; else score += 1;
+    if (d.ram) score += d.ram >= 6 ? 2 : d.ram >= 4 ? 1 : 0; else score += 1;
+    d.tier = score >= 3 ? "full" : score >= 2 ? "standard" : "light";
+    return d;
+  }
+
+  function adaptations(d) {
+    const a = [];
+    const lowBatt = d.battery && !d.battery.charging && d.battery.level <= 20;
+    S.perf = lowBatt ? "light" : d.tier;
+    a.push(S.perf === "full" ? "Reactor animation at full quality for this hardware." :
+      S.perf === "standard" ? "Reactor animation at balanced quality to keep things smooth." :
+      lowBatt ? "Battery is low, so the reactor runs in power-saving mode until you charge." : "Lightweight reactor animation to suit this hardware.");
+    a.push(d.voice ? `Voice set to “${d.voice.name}”${/en-GB/i.test(d.voice.lang) ? " (British)" : ""}.` : "No built-in voices were found, so replies will be text only.");
+    if (!d.secure) a.push("This copy isn't on HTTPS, so the microphone and install features are off. Open the hosted address instead.");
+    else if (!d.speechIn) a.push(d.browser.startsWith("Firefox") ? "Firefox has no speech recognition. Open this in Chrome or Samsung Internet to talk." : "This browser can't recognise speech, so you'll type and it will answer aloud.");
+    else if (d.platform === "android") a.push("Tap-to-talk and wake word are on. Android may beep each time the mic restarts; that's the system, not the app.");
+    else if (d.platform === "ios") a.push("Tap-to-talk works. On iPad the wake word only listens while the app is open and the screen is on.");
+    else a.push("Tap-to-talk and wake word are available.");
+    if (d.wakeLock) a.push("Can keep the screen awake while open (turn on in Settings).");
+    if (d.notify) a.push("Timer alerts can appear as notifications when the app is in the background.");
+    if (!d.installed) a.push(d.platform === "ios" ? "To install: Share → Add to Home Screen." : "To install: tap Install, or the browser menu → Add to Home screen.");
+    return a;
+  }
+
+  function renderScan(d, dl, ul) {
+    const st = (ok, yes = "ready", no = "unavailable") => `<span class="st ${ok ? "ok" : "no"}">${ok ? yes : no}</span>`;
+    const rows = [
+      ["Device", esc(d.device)],
+      ["System", esc(d.os) + (d.browser ? " · " + esc(d.browser) : "")],
+      ["Display", esc(d.screen)],
+      ["Processor", d.cores ? d.cores + " cores" : "Not reported"],
+      ["Memory", d.ram ? (d.ram >= 8 ? "8 GB or more" : d.ram + " GB") : "Not reported by this browser"],
+      ["Battery", d.battery ? d.battery.level + "%" + (d.battery.charging ? " · charging" : "") : "Not reported by this browser"],
+      ["Network", esc(d.network)],
+      ["Microphone", (d.mics != null && d.mics > 0 ? d.mics + " input" + (d.mics > 1 ? "s" : "") + " · " : "") + "speech recognition " + st(d.speechIn && d.secure)],
+      ["Voice out", d.speechOut ? (d.voices.length + " voices" + (d.voice ? " · using " + esc(d.voice.name) : "")) : st(false)],
+      ["Extras", ["Wake lock " + st(d.wakeLock), "Notifications " + st(d.notify), "Location " + st(d.geo)].join(" · ")],
+      ["Storage", d.storage ? d.storage + " GB available to apps" : "Not reported"],
+      ["Mode", d.installed ? "Installed app " + st(true, "yes") : "Browser tab <span class=\"st meh\">not installed</span>"],
+      ["Tier", d.tier === "full" ? "High performance" : d.tier === "standard" ? "Standard" : "Lightweight"]
+    ];
+    dl.innerHTML = rows.map(([k, v], i) => `<dt style="animation-delay:${i * 45}ms">${k}</dt><dd style="animation-delay:${i * 45}ms">${v}</dd>`).join("");
+    ul.innerHTML = adaptations(d).map(x => "<li>" + esc(x) + "</li>").join("");
+  }
+
+  async function runScan() {
+    S.scan = await scanDevice();
+    $("#deviceLine").textContent = S.scan.device === "Unknown device" ? S.scan.os : S.scan.device;
+    adaptations(S.scan);
+    if (!S.scan.speechIn || !S.scan.secure) { $("#mic").disabled = true; $("#mic").title = "Speech recognition isn't available here"; }
+    if (S.scan.platform === "ios") $("#wakeHelp").textContent = "Keep listening for the assistant's name. On iPad this works only while the app is open and the screen is on.";
+    $("#installHelp").textContent = S.scan.installed ? "Running as an installed app." :
+      S.scan.platform === "ios" ? "To install on iPad: tap Share, then Add to Home Screen." : "To install: tap Install in the header, or open the browser menu and choose Add to Home screen.";
+    return S.scan;
+  }
+  if (battery == null && navigator.getBattery) navigator.getBattery().then(b => { battery = b; const upd = () => { if (S.scan) { S.scan.battery = { level: Math.round(b.level * 100), charging: b.charging }; adaptations(S.scan); } }; b.addEventListener("levelchange", upd); b.addEventListener("chargingchange", upd); }).catch(() => {});
+
+  /* ============ UI basics ============ */
+  let state = "idle", busy = false, speaking = false, level = 0, ctl = null;
+  const LABEL = { idle: "Standby", listening: "Listening", thinking: "Thinking", speaking: "Speaking", wake: "Awaiting name" };
+  function setState(s) {
+    state = s;
+    const chip = $("#stateChip"); chip.textContent = LABEL[s] || s;
+    chip.className = "chip" + (s === "thinking" ? " think" : s === "idle" ? "" : " live");
+    $("#mic").classList.toggle("on", s === "listening");
+    $("#stop").hidden = !(s === "thinking" || s === "speaking");
+    $("#hint").textContent = s === "listening" ? "Listening…" : s === "thinking" ? "Working on it…" : s === "speaking" ? "Tap the core to interrupt" :
+      s === "wake" ? `Say “${S.settings.name}” and your request` : "Tap the core to talk, or type below";
+  }
+  function notice(text) { $("#noticeText").textContent = text; $("#notice").hidden = false; }
+  $("#noticeClose").onclick = () => { $("#notice").hidden = true; };
+
+  const log = $("#log");
+  function addMsg(kind, text) {
+    const row = document.createElement("div"); row.className = "msg " + kind;
+    const who = document.createElement("div"); who.className = "who"; who.textContent = kind === "user" ? "You" : S.settings.name;
+    const say = document.createElement("div"); say.className = "say";
+    const txt = document.createElement("span"); txt.textContent = text;
+    const cards = document.createElement("div");
+    say.append(txt, cards); row.append(who, say); log.append(row);
+    while (log.children.length > 80) log.firstElementChild.remove();
+    scrollLog();
+    return { row, txt, cards };
+  }
+  function scrollLog() { requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; if (innerWidth < 900) log.lastElementChild?.scrollIntoView({ block: "nearest" }); }); }
+  function addCard(target, url, title) {
+    const a = document.createElement("a"); a.className = "card"; a.href = url; a.target = "_blank"; a.rel = "noopener";
+    const t = document.createElement("span"); t.textContent = title || url;
+    const u = document.createElement("small"); u.textContent = url.replace(/^https?:\/\//, "").slice(0, 70);
+    a.append(t, u); target.append(a); scrollLog();
+  }
+  function welcome() {
+    const hr = new Date().getHours();
+    const part = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
+    const who = (S.settings.user || "").trim() || addr();
+    const m = addMsg("ai", `${part}, ${who}. All systems are online. Tap the core or type below.`);
+    const chips = document.createElement("div"); chips.className = "chips";
+    ["What's the weather today?", "Set a 25 minute focus timer", "Run a diagnostic", "Add buy milk to my tasks"]
+      .forEach(t => { const b = document.createElement("button"); b.type = "button"; b.className = "suggest"; b.textContent = t; b.onclick = () => handleInput(t); chips.append(b); });
+    m.cards.append(chips);
+  }
+
+  /* ============ rail: timers, tasks, memory ============ */
+  function fmt(ms) { const s = Math.max(0, Math.round(ms / 1000)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); }
+  function li(children, cls) { const el = document.createElement("li"); if (cls) el.className = cls; el.append(...children); return el; }
+  function xBtn(label, fn) { const x = document.createElement("button"); x.className = "x"; x.type = "button"; x.textContent = "✕"; x.setAttribute("aria-label", label); x.onclick = fn; return x; }
+  function renderRail() {
+    const tl = $("#timers"); tl.textContent = "";
+    S.timers.forEach(t => {
+      const c = document.createElement("span"); c.className = "timer"; c.dataset.id = t.id; c.textContent = fmt(t.end - Date.now());
+      const n = document.createElement("span"); n.className = "t"; n.textContent = t.label;
+      tl.append(li([c, n, xBtn("Cancel " + t.label, () => { S.timers = S.timers.filter(y => y.id !== t.id); save(); renderRail(); })]));
+    });
+    $("#timersEmpty").hidden = S.timers.length > 0;
+    $("#timerCount").textContent = S.timers.length ? S.timers.length + " running" : "";
+
+    const ul = $("#tasks"); ul.textContent = "";
+    S.tasks.forEach(t => {
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.className = "tick"; cb.checked = !!t.done; cb.id = "task-" + t.id;
+      cb.onchange = () => { t.done = cb.checked; save(); renderRail(); };
+      const n = document.createElement("label"); n.className = "t"; n.htmlFor = cb.id; n.textContent = t.text;
+      ul.append(li([cb, n, xBtn("Delete " + t.text, () => { S.tasks = S.tasks.filter(y => y.id !== t.id); save(); renderRail(); })], t.done ? "done" : ""));
+    });
+    $("#tasksEmpty").hidden = S.tasks.length > 0;
+    $("#taskCount").textContent = S.tasks.length ? S.tasks.filter(t => !t.done).length + " open" : "";
+
+    const ml = $("#memory"); ml.textContent = "";
+    S.memory.forEach((f, i) => { const n = document.createElement("span"); n.className = "t"; n.textContent = f; ml.append(li([n, xBtn("Forget " + f, () => { S.memory.splice(i, 1); save(); renderRail(); })])); });
+    $("#memoryEmpty").hidden = S.memory.length > 0;
+    $("#memCount").textContent = S.memory.length ? S.memory.length + (S.memory.length === 1 ? " fact" : " facts") : "";
+  }
+  $("#taskForm").addEventListener("submit", e => { e.preventDefault(); const v = $("#taskInput").value.trim(); if (v) { addTask(v); $("#taskInput").value = ""; } });
+
+  function addTimer(minutes, label) {
+    if (!isFinite(minutes) || minutes <= 0) throw new Error("Duration must be a positive number of minutes");
+    if (minutes > 24 * 60) throw new Error("Timers are limited to 24 hours");
+    const t = { id: uid(), label: (label || "Timer").slice(0, 40), end: Date.now() + minutes * 60000 };
+    S.timers.push(t); save(); renderRail();
+    return { ok: true, label: t.label, ends_at: new Date(t.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+  }
+  function cancelTimer(label) { const l = String(label || "").toLowerCase(); const n = S.timers.length; S.timers = l ? S.timers.filter(t => !t.label.toLowerCase().includes(l)) : []; save(); renderRail(); return { cancelled: n - S.timers.length }; }
+  function addTask(text) { const t = { id: uid(), text: String(text).slice(0, 140), done: false }; S.tasks.push(t); save(); renderRail(); return { ok: true, task: t.text, open_tasks: S.tasks.filter(x => !x.done).length }; }
+  function completeTask(text) { const l = String(text || "").toLowerCase(); const t = S.tasks.find(t => !t.done && t.text.toLowerCase().includes(l)) || S.tasks.find(t => !t.done && l.includes(t.text.toLowerCase())); if (!t) throw new Error("No open task matches “" + text + "”"); t.done = true; save(); renderRail(); return { ok: true, completed: t.text }; }
+  function clearDone() { const n = S.tasks.length; S.tasks = S.tasks.filter(t => !t.done); save(); renderRail(); return { removed: n - S.tasks.length }; }
+  function remember(fact) { const f = String(fact || "").trim().slice(0, 200); if (!f) throw new Error("Nothing to remember"); if (!S.memory.includes(f)) S.memory.push(f); if (S.memory.length > 50) S.memory.shift(); save(); renderRail(); return { ok: true, saved: f }; }
+  function forget(text) { const l = String(text || "").toLowerCase(); const n = S.memory.length; S.memory = S.memory.filter(f => !f.toLowerCase().includes(l)); save(); renderRail(); return { forgotten: n - S.memory.length }; }
+  let currentBubble = null;
+  function showLink(url, title) {
+    let u = String(url || "").trim();
+    if (!/^https:\/\//i.test(u)) { if (/^[\w.-]+\.[a-z]{2,}/i.test(u)) u = "https://" + u; else throw new Error("Only https links can be shown"); }
+    if (currentBubble) addCard(currentBubble.cards, u, title);
+    return { shown: true, note: "The user taps the card to open it." };
+  }
+
+  /* ============ weather (Open-Meteo, no key) ============ */
+  const WMO = { 0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast", 45: "fog", 48: "freezing fog", 51: "light drizzle", 53: "drizzle", 55: "heavy drizzle", 56: "freezing drizzle", 57: "freezing drizzle",
+    61: "light rain", 63: "rain", 65: "heavy rain", 66: "freezing rain", 67: "freezing rain", 71: "light snow", 73: "snow", 75: "heavy snow", 77: "snow grains", 80: "light showers", 81: "showers", 82: "violent showers",
+    85: "snow showers", 86: "heavy snow showers", 95: "thunderstorms", 96: "thunderstorms with hail", 99: "severe thunderstorms with hail" };
+  let lastCoords = store.get("coords", null);
+  function locate() {
+    return new Promise((res, rej) => {
+      if (!navigator.geolocation) return rej(new Error("This browser has no location access"));
+      navigator.geolocation.getCurrentPosition(p => { lastCoords = { lat: p.coords.latitude, lon: p.coords.longitude, name: "Your location" }; store.set("coords", lastCoords); res(lastCoords); },
+        e => lastCoords ? res(lastCoords) : rej(new Error(e.code === 1 ? "Location permission was denied. Set a weather city in Settings or allow location." : "Couldn't get a location fix")), { timeout: 12000, maximumAge: 30 * 60000 });
+    });
+  }
+  async function geocode(city) {
+    const r = await fetch("https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&format=json&name=" + encodeURIComponent(city));
+    const j = await r.json(); const g = j.results && j.results[0];
+    if (!g) throw new Error("I couldn't find a place called " + city);
+    return { lat: g.latitude, lon: g.longitude, name: g.name + (g.country ? ", " + g.country : "") };
+  }
+  async function getWeather(city) {
+    const place = city ? await geocode(city) : S.settings.city ? await geocode(S.settings.city) : await locate();
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,precipitation&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset&hourly=precipitation_probability&forecast_days=2&timezone=auto`;
+    const r = await fetch(url); if (!r.ok) throw new Error("The weather service didn't answer");
+    const j = await r.json(); const c = j.current, d = j.daily;
+    const hrNow = new Date().getHours();
+    const rainNext6 = Math.max(0, ...(j.hourly?.precipitation_probability || []).slice(hrNow, hrNow + 6));
+    const out = {
+      place: place.name, now: WMO[c.weather_code] || "unknown", temp_c: Math.round(c.temperature_2m), feels_like_c: Math.round(c.apparent_temperature),
+      humidity_pct: c.relative_humidity_2m, wind_kmh: Math.round(c.wind_speed_10m), rain_chance_next_6h_pct: rainNext6,
+      today: { high_c: Math.round(d.temperature_2m_max[0]), low_c: Math.round(d.temperature_2m_min[0]), rain_chance_pct: d.precipitation_probability_max[0], sky: WMO[d.weather_code[0]] || "" },
+      tomorrow: { high_c: Math.round(d.temperature_2m_max[1]), low_c: Math.round(d.temperature_2m_min[1]), rain_chance_pct: d.precipitation_probability_max[1], sky: WMO[d.weather_code[1]] || "" },
+      sunset: (d.sunset[0] || "").slice(11, 16)
+    };
+    renderWeather(out);
+    return out;
+  }
+  function renderWeather(w) {
+    $("#wxWhere").textContent = w.place;
+    $("#wx").innerHTML = `<span class="temp">${w.temp_c}°</span><span class="desc">${esc(w.now.replace(/^\w/, s => s.toUpperCase()))}<br><span class="help">Feels ${w.feels_like_c}° · high ${w.today.high_c}° · low ${w.today.low_c}°</span></span>
+      <span class="meta">Rain next 6 h ${w.rain_chance_next_6h_pct}% · humidity ${w.humidity_pct}% · wind ${w.wind_kmh} km/h · sunset ${esc(w.sunset)}</span>`;
+  }
+  $("#wxBtn").onclick = () => getWeather().catch(e => notice(e.message));
+
+  /* ============ notifications ============ */
+  let swReg = null;
+  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").then(r => { swReg = r; }).catch(() => {});
+  function alertOut(title, body) {
+    try { navigator.vibrate && navigator.vibrate([250, 120, 250, 120, 400]); } catch (e) {}
+    if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+      try { if (swReg) swReg.showNotification(title, { body, icon: "icons/icon-192.png", badge: "icons/icon-192.png", tag: "jarvis-" + Date.now(), vibrate: [250, 120, 250] }); else new Notification(title, { body }); } catch (e) {}
+    }
+  }
+  function beep() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      const ac = beep.ac || (beep.ac = new AC());
+      [0, 0.28, 0.56].forEach(d => { const o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = 880; g.gain.setValueAtTime(0.0001, ac.currentTime + d); g.gain.exponentialRampToValueAtTime(0.3, ac.currentTime + d + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + d + 0.22); o.connect(g).connect(ac.destination); o.start(ac.currentTime + d); o.stop(ac.currentTime + d + 0.25); });
+    } catch (e) {}
+  }
+  function tickClock() { $("#clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+  setInterval(() => {
+    const now = Date.now(); tickClock();
+    document.querySelectorAll(".timer").forEach(el => { const t = S.timers.find(x => x.id === el.dataset.id); if (t) el.textContent = fmt(t.end - now); });
+    const due = S.timers.filter(t => t.end <= now);
+    if (due.length) {
+      S.timers = S.timers.filter(t => t.end > now); save(); renderRail();
+      due.forEach(t => { beep(); const name = /timer/i.test(t.label) ? t.label : t.label + " timer"; const line = `Your ${name} is done, ${addr()}.`; addMsg("ai", line); alertOut(S.settings.name, line); if (!busy) speak(line); });
+    }
+  }, 1000);
+
+  /* ============ wake lock ============ */
+  let lock = null;
+  async function keepAwake() { if (!S.settings.awake || !("wakeLock" in navigator) || document.hidden) return; try { lock = await navigator.wakeLock.request("screen"); lock.addEventListener("release", () => { lock = null; }); } catch (e) {} }
+  function releaseAwake() { try { lock && lock.release(); } catch (e) {} lock = null; }
+
+  /* ============ tools ============ */
+  const TOOLS = [
+    { name: "set_timer", description: "Start a countdown timer. Returns the label and the clock time it ends.",
+      schema: { type: "object", properties: { minutes: { type: "number", description: "Duration in minutes; fractions allowed (0.5 = 30 seconds)" }, label: { type: "string", description: "Short name such as Tea or Focus" } }, required: ["minutes"] },
+      run: i => addTimer(Number(i.minutes), String(i.label || "Timer")) },
+    { name: "cancel_timer", description: "Cancel running timers whose label contains the text; empty text cancels all. Returns how many were cancelled.",
+      schema: { type: "object", properties: { label: { type: "string" } } }, run: i => cancelTimer(i.label) },
+    { name: "add_task", description: "Add an item to the user's task list.",
+      schema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] }, run: i => addTask(String(i.text || "")) },
+    { name: "complete_task", description: "Mark the open task that best matches the text as done. Errors if nothing matches.",
+      schema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] }, run: i => completeTask(i.text) },
+    { name: "clear_completed_tasks", description: "Remove all ticked-off tasks from the list.", schema: { type: "object", properties: {} }, run: () => clearDone() },
+    { name: "remember", description: "Save a lasting fact or preference about the user (one short sentence).",
+      schema: { type: "object", properties: { fact: { type: "string" } }, required: ["fact"] }, run: i => remember(i.fact) },
+    { name: "forget", description: "Delete memory facts containing the text.",
+      schema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] }, run: i => forget(i.text) },
+    { name: "get_weather", description: "Live weather now, today and tomorrow (Celsius, km/h). Uses the tablet's location unless a city is given.",
+      schema: { type: "object", properties: { city: { type: "string", description: "Optional place name" } } }, run: i => getWeather(i.city ? String(i.city) : "") },
+    { name: "get_device_status", description: "The tablet's model, OS, battery, network, screen, processor, memory and which features work. Use for diagnostics or battery questions.",
+      schema: { type: "object", properties: {} }, run: async () => { const d = await runScan(); return { device: d.device, os: d.os, browser: d.browser, battery: d.battery, network: d.network, screen: d.screen, cores: d.cores, ram_gb: d.ram, speech_recognition: d.speechIn, voice: d.voice ? d.voice.name : null, installed_as_app: d.installed, performance_tier: d.tier }; } },
+    { name: "show_link", description: "Show a tappable link card for a website, a Google or YouTube search, or a map. You cannot open it yourself; the user taps it.",
+      schema: { type: "object", properties: { url: { type: "string", description: "Full https URL" }, title: { type: "string" } }, required: ["url"] }, run: i => showLink(i.url, i.title) }
+  ];
+  const runTool = async (name, input) => { const t = TOOLS.find(x => x.name === name); if (!t) throw new Error("Unknown tool " + name); return await t.run(input || {}); };
+
+  function buildRules() {
+    const s = S.settings, now = new Date(), d = S.scan;
+    const open = S.tasks.filter(t => !t.done).map(t => "- " + t.text);
+    const timers = S.timers.map(t => `- ${t.label}: ${fmt(t.end - Date.now())} left`);
+    return [
+      `You are ${s.name}, a personal voice assistant running as an app on ${s.user ? s.user + "'s" : "the user's"} tablet${d && d.device !== "Unknown device" ? " (" + d.device + ", " + d.os + ")" : ""}, in the spirit of a capable AI butler from the films.`,
+      `Character: calm, precise, loyal, with dry understated British wit that is never at the user's expense. Address the user as "${addr()}".`,
+      "Your replies are SPOKEN aloud: usually one to three short sentences of plain conversational text. No markdown, lists, emojis, or URLs read out. Go longer only when asked to explain or plan something, and keep it speakable. Use metric units.",
+      "Use your tools to act: timers, tasks, memory, live weather, device diagnostics and link cards. Call tools before writing and don't announce that you are about to. Only claim actions that a tool confirmed.",
+      "You cannot open other apps, change device settings, send messages, control smart-home devices, or browse the web for news. If asked, say so in one line and offer a show_link card (for example a Google search) instead.",
+      "When the user shares a lasting personal fact or preference, save it with remember.",
+      "",
+      `Current local time: ${now.toLocaleString([], { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}.`,
+      "Open tasks:\n" + (open.join("\n") || "(none)"),
+      "Running timers:\n" + (timers.join("\n") || "(none)"),
+      "Memory about the user:\n" + (S.memory.map(f => "- " + f).join("\n") || "(none)")
+    ].join("\n");
+  }
+
+  /* ============ brains ============ */
+  function brain() {
+    const s = S.settings;
+    if (s.brain === "gemini") return s.geminiKey ? "gemini" : "offline";
+    if (s.brain === "claude") return s.claudeKey ? "claude" : "offline";
+    if (s.brain === "offline") return "offline";
+    return s.claudeKey ? "claude" : s.geminiKey ? "gemini" : "offline";
+  }
+  function updateBrainChip() {
+    const b = brain(); const chip = $("#brainChip");
+    chip.textContent = "Brain: " + (b === "claude" ? "Claude" : b === "gemini" ? "Gemini" : "offline");
+    chip.className = "chip" + (b === "offline" ? "" : " live");
+  }
+  function history() {
+    const out = [];
+    for (const t of S.turns.slice(-14)) { const last = out[out.length - 1]; if (last && last.role === t.role) last.content += "\n" + t.content; else out.push({ role: t.role, content: t.content }); }
+    while (out.length && out[0].role !== "user") out.shift();
+    return out;
+  }
+
+  async function askGemini(signal) {
+    const s = S.settings;
+    const contents = history().map(t => ({ role: t.role === "assistant" ? "model" : "user", parts: [{ text: t.content }] }));
+    const body = { systemInstruction: { parts: [{ text: buildRules() }] }, contents,
+      tools: [{ functionDeclarations: TOOLS.map(t => ({ name: t.name, description: t.description, parameters: Object.keys(t.schema.properties || {}).length ? t.schema : undefined })) }] };
+    for (let round = 0; round < 5; round++) {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent((s.geminiModel || DEFAULTS.geminiModel).trim())}:generateContent`, {
+        method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": s.geminiKey.trim() }, body: JSON.stringify(body), signal });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { const e = new Error(j.error?.message || "HTTP " + r.status); e.kind = "api"; throw e; }
+      const cand = j.candidates?.[0]; const parts = cand?.content?.parts || [];
+      const calls = parts.filter(p => p.functionCall);
+      if (!calls.length) return parts.filter(p => p.text && !p.thought).map(p => p.text).join("").trim();
+      contents.push(cand.content);
+      const responses = [];
+      for (const c of calls) {
+        let response; try { response = { result: await runTool(c.functionCall.name, c.functionCall.args) }; } catch (e) { response = { error: String(e.message || e) }; }
+        responses.push({ functionResponse: { name: c.functionCall.name, response } });
+      }
+      contents.push({ role: "user", parts: responses });
+    }
+    return `I've lost the thread there, ${addr()}. Could you ask again?`;
+  }
+
+  async function askClaude(signal) {
+    const s = S.settings;
+    const messages = history().map(t => ({ role: t.role, content: t.content }));
+    const tools = TOOLS.map(t => ({ name: t.name, description: t.description, input_schema: t.schema }));
+    for (let round = 0; round < 5; round++) {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", signal,
+        headers: { "content-type": "application/json", "x-api-key": s.claudeKey.trim(), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify({ model: (s.claudeModel || DEFAULTS.claudeModel).trim(), max_tokens: 800, system: buildRules(), messages, tools })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { const e = new Error(j.error?.message || "HTTP " + r.status); e.kind = "api"; throw e; }
+      const blocks = j.content || [];
+      const uses = blocks.filter(b => b.type === "tool_use");
+      if (j.stop_reason !== "tool_use" || !uses.length) return blocks.filter(b => b.type === "text").map(b => b.text).join("").trim();
+      messages.push({ role: "assistant", content: blocks });
+      const results = [];
+      for (const u of uses) {
+        try { results.push({ type: "tool_result", tool_use_id: u.id, content: JSON.stringify(await runTool(u.name, u.input)) }); }
+        catch (e) { results.push({ type: "tool_result", tool_use_id: u.id, content: String(e.message || e), is_error: true }); }
+      }
+      messages.push({ role: "user", content: results });
+    }
+    return `I've lost the thread there, ${addr()}. Could you ask again?`;
+  }
+
+  async function offline(text) {
+    const t = text.toLowerCase(); let m;
+    if (/what('?s| is) the time|what time is it/.test(t)) return `It's ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}, ${addr()}.`;
+    if (/what('?s| is) (the |today'?s )?date|what day is it/.test(t)) return `Today is ${new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}.`;
+    if (/weather|temperature|rain/.test(t)) { const w = await getWeather(); return `It's ${w.temp_c} degrees and ${w.now} in ${w.place}, with a ${w.rain_chance_next_6h_pct} percent chance of rain in the next six hours. Today's high is ${w.today.high_c}.`; }
+    if (/diagnostic|battery|system status|systems check/.test(t)) { const d = await runScan(); return `Running on ${d.device}, ${d.os}. ${d.battery ? "Battery at " + d.battery.level + " percent" + (d.battery.charging ? " and charging" : "") + ". " : ""}${d.network}. All core systems nominal.`; }
+    if ((m = t.match(/(\d+(?:\.\d+)?)\s*(hour|hr|minute|min|second|sec)s?/)) && /timer|remind|alarm/.test(t)) {
+      const n = parseFloat(m[1]), u = m[2]; const minutes = u.startsWith("h") ? n * 60 : u.startsWith("s") ? n / 60 : n;
+      const lab = (t.match(/(\d+\s*\w+)\s+([a-z]+)\s+timer/) || [])[2] || "Timer";
+      const r = addTimer(minutes, lab.replace(/^\w/, c => c.toUpperCase())); return `Timer set. It ends at ${r.ends_at}.`;
+    }
+    if ((m = text.match(/^(?:add|put)\s+(.+?)\s+(?:to|on)\s+(?:my\s+)?(?:task|to-?do)?\s*(?:list|tasks)\b/i))) { addTask(m[1]); return `Added ${m[1]} to your tasks.`; }
+    if ((m = text.match(/^remind me to\s+(.+)/i))) { addTask(m[1]); return `Noted. ${m[1]} is on your list.`; }
+    if ((m = text.match(/^remember(?: that)?\s+(.+)/i))) { remember(m[1]); return "I'll remember that."; }
+    if (/(what'?s|what is) on my (list|tasks)|my tasks/.test(t)) { const o = S.tasks.filter(x => !x.done).map(x => x.text); return o.length ? `You have ${o.length} open: ${o.join("; ")}.` : "Your list is clear."; }
+    if (/brief/.test(t)) return briefingOffline();
+    return `I'm on offline commands at the moment, ${addr()}. I can do the time, weather, timers, tasks and diagnostics. Add a Gemini key in Settings and I can hold a proper conversation.`;
+  }
+  async function briefingOffline() {
+    const hr = new Date().getHours(); let s = (hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening") + `, ${addr()}. It's ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. `;
+    try { const w = await getWeather(); s += `Outside it's ${w.temp_c} degrees and ${w.now}, high of ${w.today.high_c}, rain chance ${w.today.rain_chance_pct} percent. `; } catch (e) {}
+    const o = S.tasks.filter(x => !x.done); s += o.length ? `You have ${o.length} open task${o.length > 1 ? "s" : ""}, starting with ${o[0].text}.` : "Your task list is clear.";
+    return s;
+  }
+
+  async function handleInput(raw, opts = {}) {
+    const text = String(raw || "").trim();
+    if (!text || busy) return;
+    stopSpeaking(); stopWake(); unlockAudio();
+    busy = true;
+    if (!opts.silentUser) addMsg("user", text);
+    S.turns.push({ role: "user", content: text });
+    setState("thinking");
+    const bubble = addMsg("ai", "Thinking…"); bubble.row.classList.add("pending");
+    currentBubble = bubble; ctl = new AbortController();
+    let reply = "";
+    try {
+      const b = brain();
+      reply = b === "claude" ? await askClaude(ctl.signal) : b === "gemini" ? await askGemini(ctl.signal) : await offline(text);
+    } catch (e) {
+      if (e && e.name === "AbortError") reply = "";
+      else if (e && e.kind === "api") reply = "The model returned an error: " + e.message + " Check your key and model name in Settings.";
+      else if (e instanceof TypeError) reply = navigator.onLine ? "I couldn't reach the model. Check the key in Settings and try again." : "We're offline, " + addr() + ". Offline commands still work.";
+      else reply = (e && e.message) || "Something interrupted me. Please try again.";
+    }
+    currentBubble = null;
+    bubble.row.classList.remove("pending");
+    bubble.txt.textContent = reply || "Stopped.";
+    if (reply) S.turns.push({ role: "assistant", content: reply });
+    if (S.turns.length > 40) S.turns = S.turns.slice(-30);
+    save();
+    busy = false; ctl = null; setState("idle");
+    if (reply) await speak(reply);
+    resumeWake();
+  }
+
+  /* ============ voice out ============ */
+  const PREFERRED = ["Google UK English Male", "Daniel", "Arthur", "Microsoft Ryan", "Microsoft George", "Oliver", "en-gb-x-rjs", "en-gb-x-gbd", "en-GB-language", "Microsoft Thomas"];
+  let voices = [];
+  function pickVoice(list) {
+    list = list || voices;
+    if (S.settings.voice) { const v = list.find(x => x.name === S.settings.voice); if (v) return v; }
+    for (const p of PREFERRED) { const v = list.find(x => x.name.includes(p) || (x.voiceURI || "").includes(p)); if (v) return v; }
+    return list.find(v => /en[-_]GB/i.test(v.lang) && /male/i.test(v.name)) || list.find(v => /en[-_]GB/i.test(v.lang)) || list.find(v => /^en/i.test(v.lang)) || list[0] || null;
+  }
+  function loadVoices() {
+    if (!synth) return;
+    voices = synth.getVoices();
+    const sel = $("#setVoice"); sel.textContent = "";
+    const auto = document.createElement("option"); auto.value = ""; auto.textContent = "Automatic (best British voice)"; sel.append(auto);
+    voices.slice().sort((a, b) => (/en[-_]GB/i.test(b.lang) - /en[-_]GB/i.test(a.lang)) || a.name.localeCompare(b.name))
+      .forEach(v => { const o = document.createElement("option"); o.value = v.name; o.textContent = `${v.name} (${v.lang})`; sel.append(o); });
+    sel.value = S.settings.voice;
+    if (S.scan) { S.scan.voices = voices; S.scan.voice = pickVoice(voices); }
+  }
+  if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
+  let speakToken = 0;
+  function speak(text) {
+    return new Promise(resolve => {
+      if (!synth) return resolve();
+      const clean = String(text).replace(/https?:\/\/\S+/g, "").replace(/[*_#`>|]/g, "").replace(/°/g, " degrees").replace(/\s+/g, " ").trim();
+      if (!clean) return resolve();
+      synth.cancel();
+      const my = ++speakToken; const v = pickVoice();
+      const chunks = clean.match(/[^.!?]+[.!?]*\s*/g) || [clean];
+      speaking = true; setState("speaking");
+      const finish = () => { if (my !== speakToken) return; speaking = false; level = 0; if (!busy) setState("idle"); resolve(); };
+      chunks.forEach((c, i) => {
+        const u = new SpeechSynthesisUtterance(c.trim());
+        if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-GB";
+        u.rate = Number(S.settings.rate) || 1; u.pitch = Number(S.settings.pitch) || 0.9;
+        u.onboundary = () => { level = 1; };
+        if (i === chunks.length - 1) { u.onend = finish; u.onerror = finish; }
+        synth.speak(u);
+      });
+      setTimeout(() => { if (my === speakToken && speaking && !synth.speaking && !synth.pending) finish(); }, 4000 + clean.length * 90);
+    });
+  }
+  function stopSpeaking() { if (synth && (synth.speaking || synth.pending)) { speakToken++; synth.cancel(); } speaking = false; level = 0; }
+  let audioUnlocked = false;
+  function unlockAudio() {
+    if (audioUnlocked) return; audioUnlocked = true;
+    try { const AC = window.AudioContext || window.webkitAudioContext; if (AC) { beep.ac = beep.ac || new AC(); beep.ac.resume && beep.ac.resume(); } } catch (e) {}
+    keepAwake();
+  }
+
+  /* ============ voice in ============ */
+  let rec = null, wakeRec = null, micDead = !SR;
+  function micProblem(kind) {
+    S.settings.wake = false; save(); stopWake(); $("#setWake").checked = false;
+    if (kind === "blocked") { micDead = true; notice("Microphone permission is off for this app. Allow it in the browser's site settings (lock icon → Permissions), then reopen the app."); }
+    else notice("The microphone couldn't start. Close other apps that use it and try again.");
+    setState(busy ? "thinking" : "idle");
+  }
+  function listenOnce() {
+    if (!SR || !window.isSecureContext) { notice("Speech recognition isn't available in this browser. Use Chrome or Samsung Internet on Android, or Safari on iPad. You can still type."); return; }
+    if (micDead) { micProblem("blocked"); return; }
+    stopSpeaking(); stopWake(); unlockAudio();
+    if (rec) { try { rec.stop(); } catch (e) {} return; }
+    const r = new SR(); rec = r;
+    r.lang = navigator.language || "en-US"; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
+    let finalText = ""; const input = $("#say");
+    r.onresult = e => { let interim = ""; for (let i = e.resultIndex; i < e.results.length; i++) { const x = e.results[i]; if (x.isFinal) finalText += x[0].transcript; else interim += x[0].transcript; } input.value = (finalText + interim).trim(); };
+    r.onerror = e => { if (e.error === "not-allowed" || e.error === "service-not-allowed") micProblem("blocked"); else if (e.error === "audio-capture") micProblem("busy"); else if (e.error !== "no-speech" && e.error !== "aborted") notice("Speech recognition stopped (" + e.error + "). Try again or type."); };
+    r.onend = () => { rec = null; if (!busy) setState("idle"); const t = finalText.trim(); if (t) { input.value = ""; handleInput(t); } else resumeWake(); };
+    setState("listening");
+    try { r.start(); } catch (e) { rec = null; setState("idle"); }
+  }
+  function wakeWords() { const n = (S.settings.name || "jarvis").toLowerCase().trim(); return n === "jarvis" ? ["jarvis", "jervis", "javis", "travis", "jarviss", "charvis"] : [n]; }
+  function startWake() {
+    if (!SR || micDead || !window.isSecureContext || !S.settings.wake || busy || speaking || rec || wakeRec || document.hidden) return;
+    const r = new SR(); wakeRec = r;
+    r.lang = navigator.language || "en-US"; r.continuous = true; r.interimResults = false;
+    r.onresult = e => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (!e.results[i].isFinal) continue;
+        const said = e.results[i][0].transcript, low = said.toLowerCase();
+        const w = wakeWords().find(x => low.includes(x)); if (!w) continue;
+        const cmd = said.slice(low.indexOf(w) + w.length).replace(/^[\s,.!?]+/, "").trim();
+        stopWake();
+        if (cmd.split(/\s+/).length >= 2) handleInput(cmd); else speak(`Yes, ${addr()}?`).then(listenOnce);
+        return;
+      }
+    };
+    r.onerror = e => { if (e.error === "not-allowed" || e.error === "service-not-allowed") micProblem("blocked"); };
+    r.onend = () => { if (wakeRec === r) { wakeRec = null; setTimeout(startWake, 500); } };
+    try { r.start(); setState("wake"); } catch (e) { wakeRec = null; }
+  }
+  function stopWake() { if (wakeRec) { const r = wakeRec; wakeRec = null; r.onend = null; try { r.abort(); } catch (e) {} } if (state === "wake") setState("idle"); }
+  function resumeWake() { setTimeout(startWake, 350); }
+  document.addEventListener("visibilitychange", () => { if (document.hidden) { stopWake(); } else { resumeWake(); keepAwake(); tickClock(); } });
+
+  /* ============ controls ============ */
+  $("#mic").onclick = () => listenOnce();
+  $("#core").onclick = () => { if (speaking) { stopSpeaking(); setState("idle"); resumeWake(); return; } if (!busy) listenOnce(); };
+  $("#stop").onclick = () => { ctl && ctl.abort(); stopSpeaking(); if (!busy) setState("idle"); };
+  $("#composer").addEventListener("submit", e => { e.preventDefault(); const v = $("#say").value; $("#say").value = ""; handleInput(v); });
+  $("#briefBtn").onclick = () => { if (busy) return; addMsg("user", "Briefing"); handleInput("Give me my briefing: greet me for the time of day, check the live weather, then my open tasks and any timers. Keep it under five spoken sentences.", { silentUser: true }); };
+
+  // install prompt
+  let deferredInstall = null;
+  addEventListener("beforeinstallprompt", e => { e.preventDefault(); deferredInstall = e; $("#installBtn").hidden = false; });
+  $("#installBtn").onclick = async () => { if (!deferredInstall) return; deferredInstall.prompt(); try { await deferredInstall.userChoice; } catch (e) {} deferredInstall = null; $("#installBtn").hidden = true; };
+  addEventListener("appinstalled", () => { $("#installBtn").hidden = true; });
+
+  // sheets
+  function openSheet(id) { $(id).hidden = false; }
+  function closeSheet(id) { $(id).hidden = true; }
+  $("#sysBtn").onclick = async () => { openSheet("#systems"); const d = await runScan(); renderScan(d, $("#sysScan"), $("#sysAdapt")); };
+  $("#rescan").onclick = async () => { const d = await runScan(); renderScan(d, $("#sysScan"), $("#sysAdapt")); };
+  $("#closeSystems").onclick = () => closeSheet("#systems");
+  $("#permMic").onclick = async () => { try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); micDead = false; $("#mic").disabled = !SR; notice("Microphone allowed."); } catch (e) { notice("Microphone wasn't allowed. Change it in the browser's site settings for this page."); } $("#rescan").click(); };
+  $("#permNotif").onclick = async () => { if (!("Notification" in window)) return notice("This browser can't show notifications."); const p = await Notification.requestPermission(); notice(p === "granted" ? "Notifications on. Timers will alert you in the background." : "Notifications are off."); };
+  $("#permLoc").onclick = () => getWeather().then(() => notice("Location allowed. Weather is live.")).catch(e => notice(e.message));
+  document.querySelectorAll(".veil").forEach(v => v.addEventListener("click", e => { if (e.target === v && v.id !== "boot") v.hidden = true; }));
+  document.addEventListener("keydown", e => { if (e.key === "Escape") ["#systems", "#settings"].forEach(id => { $(id).hidden = true; }); });
+
+  // settings
+  const F = { name: "#setName", user: "#setUser", address: "#setAddress", voice: "#setVoice", rate: "#setRate", pitch: "#setPitch", city: "#setCity",
+    brain: "#setBrain", geminiKey: "#setKey", geminiModel: "#setModel", claudeKey: "#setCKey", claudeModel: "#setCModel" };
+  const CHK = { wake: "#setWake", awake: "#setAwake", boot: "#setBoot" };
+  function fillSettings() { for (const k in F) $(F[k]).value = S.settings[k]; for (const k in CHK) $(CHK[k]).checked = !!S.settings[k]; $("#ver").textContent = VERSION; }
+  for (const k in F) $(F[k]).addEventListener(k === "brain" || k === "voice" ? "change" : "input", () => {
+    const el = $(F[k]); S.settings[k] = (k === "rate" || k === "pitch") ? Number(el.value) : el.value;
+    if (k === "name") applyName(); updateBrainChip(); save();
+  });
+  $("#setWake").addEventListener("change", e => { S.settings.wake = e.target.checked; save(); if (S.settings.wake) { micDead = !SR; resumeWake(); } else stopWake(); });
+  $("#setAwake").addEventListener("change", e => { S.settings.awake = e.target.checked; save(); S.settings.awake ? keepAwake() : releaseAwake(); });
+  $("#setBoot").addEventListener("change", e => { S.settings.boot = e.target.checked; save(); });
+  $("#openSettings").onclick = () => { fillSettings(); openSheet("#settings"); };
+  $("#closeSettings").onclick = () => { closeSheet("#settings"); $("#wipeConfirm").hidden = true; $("#wipeRow").hidden = false; if (!S.settings.name.trim()) { S.settings.name = "Jarvis"; applyName(); save(); } };
+  $("#testVoice").onclick = () => { unlockAudio(); speak(`Good day, ${addr()}. This is how I sound.`); };
+  $("#wipe").onclick = () => { $("#wipeRow").hidden = true; $("#wipeConfirm").hidden = false; };
+  $("#wipeNo").onclick = () => { $("#wipeRow").hidden = false; $("#wipeConfirm").hidden = true; };
+  $("#wipeYes").onclick = () => { S.tasks = []; S.memory = []; S.timers = []; S.turns = []; save(); renderRail(); log.textContent = ""; welcome(); $("#closeSettings").click(); };
+  function applyName() {
+    const n = S.settings.name.trim() || "Jarvis";
+    $("#brandName").textContent = n; document.title = n; $("#say").placeholder = "Ask " + n + " anything";
+    document.querySelectorAll(".msg.ai .who").forEach(w => { w.textContent = n; });
+  }
+
+  /* ============ reactor core ============ */
+  const cv = $("#orb"), cx = cv.getContext("2d");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const COL = { accent: "#58d3e8", warm: "#efb14a", line: "#1b2833" };
+  let W = 0, H = 0, rot = 0, smooth = 0, frameN = 0;
+  function size() { const r = cv.getBoundingClientRect(); const dpr = Math.min(S.perf === "light" ? 1 : 2, devicePixelRatio || 1); W = r.width; H = r.height; cv.width = W * dpr; cv.height = H * dpr; cx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+  new ResizeObserver(size).observe(cv); size();
+  function ring(r, w, color, alpha, a0 = 0, a1 = Math.PI * 2) { cx.beginPath(); cx.arc(W / 2, H / 2, r, a0, a1); cx.strokeStyle = color; cx.globalAlpha = alpha; cx.lineWidth = w; cx.stroke(); cx.globalAlpha = 1; }
+  function frame(t) {
+    requestAnimationFrame(frame);
+    frameN++;
+    if (document.hidden) return;
+    if (S.perf === "light" && frameN % 3) return;
+    if (S.perf === "standard" && frameN % 2) return;
+    const step = S.perf === "light" ? 3 : S.perf === "standard" ? 2 : 1;
+    const speed = (reduce ? 0.15 : 1) * step;
+    const think = state === "thinking", color = think ? COL.warm : COL.accent;
+    const target = state === "speaking" ? 0.45 + 0.55 * level : state === "listening" ? 0.55 + 0.25 * Math.sin(t / 180) : think ? 0.35 : state === "wake" ? 0.22 : 0.15;
+    smooth += (target - smooth) * 0.12 * step; level *= Math.pow(0.9, step);
+    rot += (think ? 0.035 : state === "idle" ? 0.004 : 0.012) * speed;
+    cx.clearRect(0, 0, W, H);
+    const R = Math.min(W, H) / 2 - 18; if (R <= 10) return;
+    const ticks = S.perf === "light" ? 36 : 72;
+    cx.save(); cx.translate(W / 2, H / 2); cx.rotate(rot * 0.5);
+    for (let i = 0; i < ticks; i++) { const a = i / ticks * Math.PI * 2, long = i % 6 === 0; cx.beginPath(); cx.moveTo(Math.cos(a) * (R - (long ? 9 : 5)), Math.sin(a) * (R - (long ? 9 : 5))); cx.lineTo(Math.cos(a) * R, Math.sin(a) * R); cx.strokeStyle = color; cx.globalAlpha = long ? 0.55 : 0.22; cx.lineWidth = 1.2; cx.stroke(); }
+    cx.restore(); cx.globalAlpha = 1;
+    const r2 = R * 0.78;
+    for (let i = 0; i < 3; i++) { const a = -rot * 1.6 + i * (Math.PI * 2 / 3); ring(r2, 3, color, 0.75, a, a + Math.PI / 2.4); }
+    ring(r2, 1, COL.line, 1);
+    const r3 = R * 0.6;
+    for (let i = 0; i < 8; i++) { const a = rot * 2.2 + i * Math.PI / 4; ring(r3, 6, color, 0.35 + smooth * 0.4, a, a + Math.PI / 7); }
+    if (state === "listening" || state === "wake") { const p = (t / (state === "wake" ? 2400 : 1200)) % 1; ring(R * 0.35 + p * R * 0.6, 1.5, color, (1 - p) * 0.6); }
+    const cr = R * (0.26 + smooth * 0.1);
+    const g = cx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, cr * 1.9);
+    g.addColorStop(0, "rgba(255,255,255,0.95)"); g.addColorStop(0.25, color); g.addColorStop(1, "rgba(0,0,0,0)");
+    cx.globalAlpha = 0.55 + smooth * 0.45; cx.fillStyle = g; cx.beginPath(); cx.arc(W / 2, H / 2, cr * 1.9, 0, Math.PI * 2); cx.fill(); cx.globalAlpha = 1;
+    ring(cr, 2, color, 0.9);
+    if (state === "speaking") { cx.beginPath(); for (let x = -cr; x <= cr; x += 2) { const y = Math.sin(x / 6 + t / 90) * smooth * cr * 0.35 * Math.cos(x / cr * Math.PI / 2); x === -cr ? cx.moveTo(W / 2 + x, H / 2 + y) : cx.lineTo(W / 2 + x, H / 2 + y); } cx.strokeStyle = "#ffffff"; cx.globalAlpha = 0.8; cx.lineWidth = 1.5; cx.stroke(); cx.globalAlpha = 1; }
+  }
+  requestAnimationFrame(frame);
+
+  /* ============ boot ============ */
+  applyName(); renderRail(); tickClock(); updateBrainChip(); setState("idle");
+  if (S.turns.length) { S.turns.slice(-6).forEach(t => addMsg(t.role === "user" ? "user" : "ai", t.content)); }
+  welcome();
+  runScan().then(d => {
+    size();
+    if (S.settings.boot) { renderScan(d, $("#bootScan"), $("#bootAdapt")); openSheet("#boot"); $("#engage").focus(); }
+    else if (S.settings.wake) resumeWake();
+    if (brain() === "offline") notice("Add your free Gemini key in Settings to give " + S.settings.name + " a full conversational brain. Time, weather, timers, tasks and diagnostics already work.");
+  });
+  $("#engage").onclick = () => {
+    closeSheet("#boot"); unlockAudio();
+    const d = S.scan, hr = new Date().getHours();
+    const part = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
+    speak(`${part}, ${(S.settings.user || "").trim() || addr()}. ${d && d.device !== "Unknown device" ? "Running on your " + d.device.replace(/\s*\(.*\)/, "") + ". " : ""}${d && d.battery ? "Battery at " + d.battery.level + " percent. " : ""}All systems online.`).then(resumeWake);
+  };
+})();
+</script>
+</body>
+</html>
