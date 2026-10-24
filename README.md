@@ -24,7 +24,24 @@ A personal voice assistant for a tablet, built as an installable web app (PWA). 
 
 Set a key in Settings, or open the app once with `#groq=YOUR_KEY` after the address. Keys are stored only in the tablet's browser storage and are sent only to their own provider.
 
-## Install on a tablet
+## Android app (full tablet control)
+
+The Android app wraps the same interface and adds real device control:
+
+- Open apps, open links, list installed apps
+- Send WhatsApp or SMS messages to contacts. You confirm every message on screen before it goes.
+- Read and add calendar events, set alarms in the clock app
+- Volume, brightness, flashlight, media playback, Do Not Disturb, settings pages
+- Read your notifications aloud
+- **Screen control**: Jarvis reads the screen and taps, types and scrolls in other apps. Taps on anything that sends, pays, posts or deletes need your OK.
+- Floating Jarvis button over other apps, and it can be your default assistant (hold the home button)
+- Live web search for news and current facts (Groq browser search)
+
+**Install:** download `jarvis.apk` from the latest [release](https://github.com/LalanaGurusinghe/jarvis/releases/latest) on the tablet, open it and allow installing from your browser. Then open Jarvis → Systems and work through the Android controls.
+
+Each push to `main` builds a new APK with GitHub Actions. The signing key is created by the workflow and kept in the private Actions cache; it is never stored in the repo.
+
+## Install on a tablet (web version)
 
 1. Open the hosted address in **Chrome** or **Samsung Internet** (Android) or **Safari** (iPad).
 2. Android: tap **Install** in the header or browser menu → *Add to Home screen*. iPad: **Share → Add to Home Screen**.

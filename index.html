@@ -226,6 +226,7 @@ button,input,select{font:inherit;color:inherit}
     <dl class="scan" id="sysScan"></dl>
     <h4>Tuned for this tablet</h4>
     <ul class="adapt" id="sysAdapt"></ul>
+    <div id="webPerms">
     <h4>Permissions</h4>
     <div class="row">
       <button class="btn" type="button" id="permMic">Allow microphone</button>
@@ -233,6 +234,20 @@ button,input,select{font:inherit;color:inherit}
       <button class="btn" type="button" id="permLoc">Allow location</button>
     </div>
     <p class="help">Each button asks the tablet once. If you said no before, change it in the browser's site settings for this page.</p>
+    </div>
+    <div id="nativeBox" hidden>
+      <h4>Android controls</h4>
+      <div class="row">
+        <button class="btn primary" type="button" data-perm="mic,contacts,calendar,sms,location,notify">Grant permissions</button>
+        <button class="btn" type="button" data-setup="accessibility">Enable screen control</button>
+        <button class="btn" type="button" data-setup="notifications">Notification access</button>
+        <button class="btn" type="button" data-setup="assistant">Make default assistant</button>
+        <button class="btn" type="button" data-setup="write_settings">Brightness control</button>
+        <button class="btn" type="button" data-setup="dnd">Do Not Disturb control</button>
+        <button class="btn" type="button" data-setup="app_info">App info</button>
+      </div>
+      <p class="help">If Accessibility shows Jarvis greyed out as a restricted setting, tap App info, then ⋮ in the top corner, then Allow restricted settings, and try Enable screen control again. Android asks for this with apps installed outside the Play Store.</p>
+    </div>
   </div>
 </div>
 
@@ -291,6 +306,8 @@ button,input,select{font:inherit;color:inherit}
     <h4>Tablet</h4>
     <div class="field"><label for="setAwake">Keep screen on</label><div class="row"><input type="checkbox" id="setAwake" class="tick"><span class="help">Stops the screen sleeping while the app is open, for a desk console.</span></div></div>
     <div class="field"><label for="setBoot">Startup scan</label><div class="row"><input type="checkbox" id="setBoot" class="tick"><span class="help">Show the system scan each time the app opens.</span></div></div>
+    <div class="field" id="floatField" hidden><label for="setFloat">Floating button</label><div class="row"><input type="checkbox" id="setFloat" class="tick"><span class="help">A small Jarvis button over other apps (needs screen control). Tap it to talk from anywhere.</span></div></div>
+    <div class="field" id="countryField" hidden><label for="setCountry">Phone country</label><input type="text" id="setCountry" placeholder="LK"></div>
     <div class="field"><label for="setCity">Weather city</label><input type="text" id="setCity" placeholder="Blank = use this tablet's location"></div>
     <p class="help" id="installHelp"></p>
 
@@ -304,7 +321,7 @@ button,input,select{font:inherit;color:inherit}
 <script>
 (() => {
   "use strict";
-  const VERSION = "1.1.0";
+  const VERSION = "2.0.0";
   const $ = (s) => document.querySelector(s);
   const store = {
     get(k, d) { try { const v = localStorage.getItem("jarvis." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -312,7 +329,7 @@ button,input,select{font:inherit;color:inherit}
   };
   const DEFAULTS = { name: "Jarvis", user: "", address: "sir", voice: "", rate: 1, pitch: 0.9, wake: false, awake: false, boot: true, city: "",
     brain: "auto", geminiKey: "", geminiModel: "gemini-flash-latest", claudeKey: "", claudeModel: "claude-haiku-5-5",
-    groqKey: "", groqModel: "openai/gpt-oss-120b", tts: "auto", groqVoice: "daniel" };
+    groqKey: "", groqModel: "openai/gpt-oss-120b", tts: "auto", groqVoice: "daniel", floating: true, country: "LK" };
   const S = {
     settings: Object.assign({}, DEFAULTS, store.get("settings", {})),
     tasks: store.get("tasks", []), memory: store.get("memory", []),
@@ -326,6 +343,31 @@ button,input,select{font:inherit;color:inherit}
 
   /* ============ device scan ============ */
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  /* ============ Android app bridge (present only inside the Jarvis Android app) ============ */
+  const NATIVE = window.JarvisAndroid || null;
+  const MAX_ROUNDS = NATIVE ? 16 : 6;
+  const nativePending = new Map(), speakDone = new Map();
+  let speechHandler = null;
+  window.jarvisNative = {
+    onTool(id, json) {
+      const p = nativePending.get(id); if (!p) return; nativePending.delete(id);
+      let r; try { r = JSON.parse(json); } catch (e) { r = { error: "The tablet sent an unreadable answer" }; }
+      if (r && r.error) p.reject(new Error(r.error)); else p.resolve(r);
+    },
+    onSpeech(type, text) { if (speechHandler) speechHandler(type, text); },
+    onSpeakDone(id) { const f = speakDone.get(id); if (f) { speakDone.delete(id); f(); } },
+    onWake() { $("#boot").hidden = true; unlockAudio(); if (!busy) listenOnce(); },
+    onResume() { if (!$("#systems").hidden) $("#rescan").click(); },
+    onPermissions() { if (!$("#systems").hidden) $("#rescan").click(); }
+  };
+  function callNative(name, args) {
+    return new Promise((resolve, reject) => {
+      const id = uid(); nativePending.set(id, { resolve, reject });
+      try { NATIVE.tool(name, JSON.stringify(args || {}), id); } catch (e) { nativePending.delete(id); reject(e); return; }
+      setTimeout(() => { if (nativePending.has(id)) { nativePending.delete(id); reject(new Error("The tablet didn't answer in time")); } }, 150000);
+    });
+  }
   const synth = window.speechSynthesis;
   let battery = null;
 
@@ -395,6 +437,17 @@ button,input,select{font:inherit;color:inherit}
     try { if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) { const devs = await navigator.mediaDevices.enumerateDevices(); d.mics = devs.filter(x => x.kind === "audioinput").length; } } catch (e) {}
     try { if (navigator.storage && navigator.storage.estimate) { const s = await navigator.storage.estimate(); d.storage = Math.round((s.quota || 0) / 1e9 * 10) / 10; } } catch (e) {}
 
+    if (NATIVE) {
+      try {
+        const n = JSON.parse(NATIVE.info()); d.native = n;
+        const fm = friendlyModel(n.model);
+        d.device = fm !== n.model ? fm : (String(n.manufacturer || "").replace(/^\w/, c => c.toUpperCase()) + " " + n.model).trim();
+        d.os = "Android " + n.android; d.platform = "android"; d.browser = "Jarvis app " + (n.version || "");
+        d.ram = n.ram_gb || d.ram; d.cores = n.cores || d.cores;
+        if (n.battery_pct != null) d.battery = { level: n.battery_pct, charging: !!n.charging };
+        d.installed = true; d.secure = true; d.speechIn = true; d.speechOut = true; d.wakeLock = true; d.notify = true;
+      } catch (e) {}
+    }
     // performance tier
     let score = 0;
     if (d.cores) score += d.cores >= 8 ? 2 : d.cores >= 6 ? 1 : 0; else score += 1;
@@ -412,7 +465,12 @@ button,input,select{font:inherit;color:inherit}
       lowBatt ? "Battery is low, so the reactor runs in power-saving mode until you charge." : "Lightweight reactor animation to suit this hardware.");
     if (S.settings.groqKey && S.settings.tts !== "device") a.push(`Voice: Groq neural voice “${(S.settings.groqVoice || "daniel").replace(/^\w/, c => c.toUpperCase())}”, with ${d.voice ? "“" + d.voice.name + "”" : "the tablet voice"} as backup.`);
     else a.push(d.voice ? `Voice set to “${d.voice.name}”${/en-GB/i.test(d.voice.lang) ? " (British)" : ""}. Add a Groq key for a neural male voice.` : "No built-in voices were found. Add a Groq key for a neural voice.");
-    if (!d.secure) a.push("This copy isn't on HTTPS, so the microphone and install features are off. Open the hosted address instead.");
+    if (d.native) {
+      a.push("Running as the Android app: Jarvis can open apps, send messages (you confirm first), use your calendar, set alarms and change volume, brightness and more.");
+      a.push(d.native.screen_control ? "Screen control is on, so Jarvis can work inside other apps and shows its floating button." : "Turn on screen control below so Jarvis can work inside other apps and show its floating button.");
+      a.push("Talk by tapping the core or the floating button" + (d.native.default_assistant ? ", or hold the home button." : ". Make Jarvis the default assistant to call it by holding the home button."));
+    }
+    else if (!d.secure) a.push("This copy isn't on HTTPS, so the microphone and install features are off. Open the hosted address instead.");
     else if (!d.speechIn) a.push(d.browser.startsWith("Firefox") ? "Firefox has no speech recognition. Open this in Chrome or Samsung Internet to talk." : "This browser can't recognise speech, so you'll type and it will answer aloud.");
     else if (d.platform === "android") a.push("Tap-to-talk and wake word are on. Android may beep each time the mic restarts; that's the system, not the app.");
     else if (d.platform === "ios") a.push("Tap-to-talk works. On iPad the wake word only listens while the app is open and the screen is on.");
@@ -423,6 +481,15 @@ button,input,select{font:inherit;color:inherit}
     return a;
   }
 
+  function nativeRows(n) {
+    const p = n.permissions || {};
+    const on = (v, y = "on", no = "off") => `<span class="st ${v ? "ok" : "no"}">${v ? y : no}</span>`;
+    return [
+      ["Controls", ["Screen control " + on(n.screen_control), "Notifications " + on(n.notification_access), "Default assistant " + on(n.default_assistant, "yes", "no")].join(" · ")],
+      ["Access", ["Mic " + on(p.mic), "Contacts " + on(p.contacts), "Calendar " + on(p.calendar), "SMS " + (n.telephony ? on(p.sms) : '<span class="st meh">no SIM</span>'), "Location " + on(p.location)].join(" · ")],
+      ["Messaging", n.whatsapp ? "WhatsApp " + on(true, "found") : 'WhatsApp <span class="st meh">not installed</span>']
+    ];
+  }
   function renderScan(d, dl, ul) {
     const st = (ok, yes = "ready", no = "unavailable") => `<span class="st ${ok ? "ok" : "no"}">${ok ? yes : no}</span>`;
     const rows = [
@@ -438,7 +505,8 @@ button,input,select{font:inherit;color:inherit}
       ["Extras", ["Wake lock " + st(d.wakeLock), "Notifications " + st(d.notify), "Location " + st(d.geo)].join(" · ")],
       ["Storage", d.storage ? d.storage + " GB available to apps" : "Not reported"],
       ["Mode", d.installed ? "Installed app " + st(true, "yes") : "Browser tab <span class=\"st meh\">not installed</span>"],
-      ["Tier", d.tier === "full" ? "High performance" : d.tier === "standard" ? "Standard" : "Lightweight"]
+      ["Tier", d.tier === "full" ? "High performance" : d.tier === "standard" ? "Standard" : "Lightweight"],
+      ...(d.native ? nativeRows(d.native) : [])
     ];
     dl.innerHTML = rows.map(([k, v], i) => `<dt style="animation-delay:${i * 45}ms">${k}</dt><dd style="animation-delay:${i * 45}ms">${v}</dd>`).join("");
     ul.innerHTML = adaptations(d).map(x => "<li>" + esc(x) + "</li>").join("");
@@ -624,8 +692,8 @@ button,input,select{font:inherit;color:inherit}
 
   /* ============ wake lock ============ */
   let lock = null;
-  async function keepAwake() { if (!S.settings.awake || !("wakeLock" in navigator) || document.hidden) return; try { lock = await navigator.wakeLock.request("screen"); lock.addEventListener("release", () => { lock = null; }); } catch (e) {} }
-  function releaseAwake() { try { lock && lock.release(); } catch (e) {} lock = null; }
+  async function keepAwake() { if (NATIVE) { NATIVE.keepScreenOn(!!S.settings.awake); return; } if (!S.settings.awake || !("wakeLock" in navigator) || document.hidden) return; try { lock = await navigator.wakeLock.request("screen"); lock.addEventListener("release", () => { lock = null; }); } catch (e) {} }
+  function releaseAwake() { if (NATIVE) { NATIVE.keepScreenOn(false); return; } try { lock && lock.release(); } catch (e) {} lock = null; }
 
   /* ============ tools ============ */
   const TOOLS = [
@@ -650,8 +718,62 @@ button,input,select{font:inherit;color:inherit}
     { name: "show_link", description: "Show a tappable link card for a website, a Google or YouTube search, or a map. You cannot open it yourself; the user taps it.",
       schema: { type: "object", properties: { url: { type: "string", description: "Full https URL" }, title: { type: "string" } }, required: ["url"] }, run: i => showLink(i.url, i.title) }
   ];
+  TOOLS.push({ name: "web_search", description: "Search the live web for news, current events, prices, results, opening hours or any fact that may have changed. Returns a summary of findings.",
+    schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, run: i => webSearch(String(i.query || "")) });
+  if (NATIVE) {
+    const T = (name, description, properties, required) => TOOLS.push({ name, description,
+      schema: Object.assign({ type: "object", properties: properties || {} }, required ? { required } : {}),
+      run: i => callNative(name, name === "send_message" ? Object.assign({ country: S.settings.country || "" }, i) : i) });
+    T("open_app", "Open an installed app by name, such as YouTube, WhatsApp, Camera or Settings.", { name: { type: "string" } }, ["name"]);
+    T("list_apps", "List the names of installed apps.");
+    T("open_link", "Open a web address or deep link on the tablet.", { url: { type: "string" } }, ["url"]);
+    T("find_contact", "Look up a contact's phone numbers by name.", { name: { type: "string" } }, ["name"]);
+    T("send_message", "Send a text to a contact name or phone number by WhatsApp or SMS. The user confirms on screen before it is sent.", { to: { type: "string", description: "Contact name or phone number" }, text: { type: "string" }, app: { type: "string", enum: ["auto", "whatsapp", "sms"] } }, ["to", "text"]);
+    T("create_calendar_event", "Add an event to the tablet's calendar with a 10-minute reminder. Times are local ISO, like 2026-10-25T15:00.", { title: { type: "string" }, start: { type: "string" }, end: { type: "string" }, location: { type: "string" }, notes: { type: "string" }, all_day: { type: "boolean" } }, ["title", "start"]);
+    T("list_calendar_events", "Read calendar events for some days from a start date (default today).", { start_date: { type: "string", description: "YYYY-MM-DD" }, days: { type: "number" } });
+    T("set_alarm", "Set a real alarm in the tablet's clock app.", { hour: { type: "number", description: "0-23" }, minute: { type: "number" }, label: { type: "string" }, days: { type: "array", items: { type: "string" }, description: "Repeat days such as mon, tue" } }, ["hour", "minute"]);
+    T("set_volume", "Set a volume level in percent.", { level: { type: "number" }, stream: { type: "string", enum: ["media", "ring", "alarm", "notification"] } }, ["level"]);
+    T("set_brightness", "Set screen brightness in percent.", { level: { type: "number" } }, ["level"]);
+    T("flashlight", "Turn the flashlight on or off.", { on: { type: "boolean" } }, ["on"]);
+    T("media_control", "Control the music or video that is playing.", { action: { type: "string", enum: ["play", "pause", "play_pause", "next", "previous"] } }, ["action"]);
+    T("do_not_disturb", "Turn Do Not Disturb on or off.", { on: { type: "boolean" } }, ["on"]);
+    T("open_settings", "Open a system settings page or quick panel.", { page: { type: "string", enum: ["wifi", "internet", "bluetooth", "volume", "sound", "display", "battery", "location", "apps", "accessibility", "date", "storage", "main"] } }, ["page"]);
+    T("read_notifications", "Read the tablet's current notifications: app, title, text and time.");
+    T("read_screen", "Read what is on screen now as a numbered list of elements. Use before tapping or typing in another app.");
+    T("tap", "Tap a screen element by its number from read_screen, or by its visible text. Returns the screen afterwards.", { index: { type: "number" }, text: { type: "string" } });
+    T("type_text", "Type into the focused text box, or into the box with the given number.", { text: { type: "string" }, index: { type: "number" } }, ["text"]);
+    T("scroll", "Scroll the current screen.", { direction: { type: "string", enum: ["up", "down"] } }, ["direction"]);
+    T("press", "Press a system button.", { button: { type: "string", enum: ["back", "home", "recents", "notifications", "quick_settings"] } }, ["button"]);
+  }
+  async function webSearch(q) {
+    if (!q) throw new Error("What should I search for?");
+    if (!S.settings.groqKey) throw new Error("Web search needs a Groq key in Settings");
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + S.settings.groqKey.trim() },
+      body: JSON.stringify({ model: "openai/gpt-oss-120b", reasoning_effort: "low", max_completion_tokens: 1500, tools: [{ type: "browser_search" }],
+        messages: [{ role: "user", content: `Today is ${new Date().toDateString()}. Search the web and give the key facts, with dates and source names, for: ${q}` }] })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error?.message || "Search failed (HTTP " + r.status + ")");
+    const text = String(j.choices?.[0]?.message?.content || "").replace(/【[^】]*】/g, "").trim();
+    if (!text) throw new Error("The search came back empty");
+    return { query: q, findings: text.slice(0, 3500) };
+  }
   const runTool = async (name, input) => { const t = TOOLS.find(x => x.name === name); if (!t) throw new Error("Unknown tool " + name); return await t.run(input || {}); };
 
+  function capabilityRules() {
+    const out = ["Use web_search for news, current events, prices, results, or anything that may have changed. Don't guess at current facts."];
+    if (NATIVE) {
+      out.push("You run inside the Jarvis Android app with real control of this tablet: open apps, send WhatsApp or SMS messages (the user confirms on screen first), read and add calendar events, set clock alarms, adjust volume, brightness, flashlight, media and Do Not Disturb, open settings pages, read notifications, and operate other apps through screen control (read_screen, tap, type_text, scroll, press).",
+        "Prefer the dedicated tools (send_message, create_calendar_event, set_alarm) over screen control. For a task inside another app: open_app, then read_screen, then tap or type one step at a time, checking screen_after each time. Stop and explain if the screen isn't what you expected. Use at most about 12 steps.",
+        "Never buy, pay, delete, post or send anything the user didn't explicitly ask for. Jarvis asks the user to confirm risky taps; if they decline, accept it and say so.",
+        "If a tool reports a missing permission or access, tell the user which button to tap in Systems.",
+        "Use local ISO times like 2026-10-25T15:00 for calendar events. You can't control smart-home devices yet.");
+    } else {
+      out.push("This web version can't open other apps, change device settings or send messages; the Jarvis Android app can. If asked, say so in one line and offer a show_link card instead.");
+    }
+    return out;
+  }
   function buildRules() {
     const s = S.settings, now = new Date(), d = S.scan;
     const open = S.tasks.filter(t => !t.done).map(t => "- " + t.text);
@@ -661,7 +783,7 @@ button,input,select{font:inherit;color:inherit}
       `Character: calm, precise, loyal, with dry understated British wit that is never at the user's expense. Address the user as "${addr()}".`,
       "Your replies are SPOKEN aloud: usually one to three short sentences of plain conversational text. No markdown, lists, emojis, or URLs read out. Go longer only when asked to explain or plan something, and keep it speakable. Use metric units.",
       "Use your tools to act: timers, tasks, memory, live weather, device diagnostics and link cards. Call tools before writing and don't announce that you are about to. Only claim actions that a tool confirmed.",
-      "You cannot open other apps, change device settings, send messages, control smart-home devices, or browse the web for news. If asked, say so in one line and offer a show_link card (for example a Google search) instead.",
+      ...capabilityRules(),
       "When the user shares a lasting personal fact or preference, save it with remember.",
       "",
       `Current local time: ${now.toLocaleString([], { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}.`,
@@ -697,7 +819,7 @@ button,input,select{font:inherit;color:inherit}
     const contents = chatHistory().map(t => ({ role: t.role === "assistant" ? "model" : "user", parts: [{ text: t.content }] }));
     const body = { systemInstruction: { parts: [{ text: buildRules() }] }, contents,
       tools: [{ functionDeclarations: TOOLS.map(t => ({ name: t.name, description: t.description, parameters: Object.keys(t.schema.properties || {}).length ? t.schema : undefined })) }] };
-    for (let round = 0; round < 5; round++) {
+    for (let round = 0; round < MAX_ROUNDS; round++) {
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent((s.geminiModel || DEFAULTS.geminiModel).trim())}:generateContent`, {
         method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": s.geminiKey.trim() }, body: JSON.stringify(body), signal });
       const j = await r.json().catch(() => ({}));
@@ -721,7 +843,7 @@ button,input,select{font:inherit;color:inherit}
     const messages = [{ role: "system", content: buildRules() }, ...chatHistory().map(t => ({ role: t.role, content: t.content }))];
     const tools = TOOLS.map(t => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.schema } }));
     let toolChoice = "auto";
-    for (let round = 0; round < 6; round++) {
+    for (let round = 0; round < MAX_ROUNDS; round++) {
       const body = { model, messages, tools, tool_choice: toolChoice, temperature: 0.6, max_completion_tokens: 800 };
       if (/gpt-oss/i.test(model)) body.reasoning_effort = "low";
       const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -749,7 +871,7 @@ button,input,select{font:inherit;color:inherit}
     const s = S.settings;
     const messages = chatHistory().map(t => ({ role: t.role, content: t.content }));
     const tools = TOOLS.map(t => ({ name: t.name, description: t.description, input_schema: t.schema }));
-    for (let round = 0; round < 5; round++) {
+    for (let round = 0; round < MAX_ROUNDS; round++) {
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST", signal,
         headers: { "content-type": "application/json", "x-api-key": s.claudeKey.trim(), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
@@ -872,7 +994,18 @@ button,input,select{font:inherit;color:inherit}
     }
     return speakDevice(clean);
   }
+  function speakNative(clean) {
+    return new Promise(resolve => {
+      const my = ++speakToken, id = uid();
+      speaking = true; setState("speaking");
+      const done = () => { if (my === speakToken) { speaking = false; level = 0; if (!busy) setState("idle"); } resolve(); };
+      speakDone.set(id, done);
+      NATIVE.speak(clean, Number(S.settings.rate) || 1, Number(S.settings.pitch) || 0.9, id);
+      setTimeout(() => { if (speakDone.has(id)) { speakDone.delete(id); done(); } }, 6000 + clean.length * 110);
+    });
+  }
   function speakDevice(clean) {
+    if (NATIVE) return speakNative(clean);
     return new Promise(resolve => {
       if (!synth) return resolve();
       synth.cancel();
@@ -943,6 +1076,7 @@ button,input,select{font:inherit;color:inherit}
   }
   function stopSpeaking() {
     speakToken++;
+    if (NATIVE) { try { NATIVE.stopSpeak(); } catch (e) {} const pending = [...speakDone.values()]; speakDone.clear(); pending.forEach(f => f()); }
     if (synth && (synth.speaking || synth.pending)) synth.cancel();
     try { ttsCtl && ttsCtl.abort(); } catch (e) {}
     try { curSource && curSource.stop(); } catch (e) {}
@@ -969,7 +1103,27 @@ button,input,select{font:inherit;color:inherit}
     else notice("The microphone couldn't start. Close other apps that use it and try again.");
     setState(busy ? "thinking" : "idle");
   }
+  function listenNative() {
+    stopSpeaking(); unlockAudio();
+    if (state === "listening") { NATIVE.stopListen(); return; }
+    let finalText = ""; const input = $("#say");
+    speechHandler = (type, text) => {
+      if (type === "partial") input.value = text;
+      else if (type === "final") finalText = text;
+      else if (type === "error") {
+        if (text === "mic-permission") notice("Allow the microphone, then tap the core again.");
+        else if (text === "unavailable") notice("This tablet has no speech recognition service. Install or update the Google app.");
+        else if (!["6", "7", "5"].includes(text)) notice("Speech recognition stopped (code " + text + "). Try again.");
+      } else if (type === "end") {
+        speechHandler = null; if (!busy) setState("idle");
+        const t = finalText.trim(); input.value = ""; if (t) handleInput(t);
+      }
+    };
+    setState("listening");
+    NATIVE.listen(navigator.language || "en-US");
+  }
   function listenOnce() {
+    if (NATIVE) return listenNative();
     if (!SR || !window.isSecureContext) { notice("Speech recognition isn't available in this browser. Use Chrome or Samsung Internet on Android, or Safari on iPad. You can still type."); return; }
     if (micDead) { micProblem("blocked"); return; }
     stopSpeaking(); stopWake(); unlockAudio();
@@ -1029,14 +1183,20 @@ button,input,select{font:inherit;color:inherit}
   $("#permMic").onclick = async () => { try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); micDead = false; $("#mic").disabled = !SR; notice("Microphone allowed."); } catch (e) { notice("Microphone wasn't allowed. Change it in the browser's site settings for this page."); } $("#rescan").click(); };
   $("#permNotif").onclick = async () => { if (!("Notification" in window)) return notice("This browser can't show notifications."); const p = await Notification.requestPermission(); notice(p === "granted" ? "Notifications on. Timers will alert you in the background." : "Notifications are off."); };
   $("#permLoc").onclick = () => getWeather().then(() => notice("Location allowed. Weather is live.")).catch(e => notice(e.message));
+  if (NATIVE) {
+    $("#webPerms").hidden = true; $("#nativeBox").hidden = false; $("#floatField").hidden = false; $("#countryField").hidden = false;
+    document.querySelectorAll("[data-setup]").forEach(b => { b.onclick = () => NATIVE.openSetup(b.dataset.setup); });
+    document.querySelectorAll("[data-perm]").forEach(b => { b.onclick = () => NATIVE.requestPermissions(b.dataset.perm); });
+  }
   document.querySelectorAll(".veil").forEach(v => v.addEventListener("click", e => { if (e.target === v && v.id !== "boot") v.hidden = true; }));
   document.addEventListener("keydown", e => { if (e.key === "Escape") ["#systems", "#settings"].forEach(id => { $(id).hidden = true; }); });
 
   // settings
   const F = { name: "#setName", user: "#setUser", address: "#setAddress", voice: "#setVoice", rate: "#setRate", pitch: "#setPitch", city: "#setCity",
     brain: "#setBrain", geminiKey: "#setKey", geminiModel: "#setModel", claudeKey: "#setCKey", claudeModel: "#setCModel",
-    groqKey: "#setGKey", groqModel: "#setGModel", tts: "#setTts", groqVoice: "#setGVoice" };
-  const CHK = { wake: "#setWake", awake: "#setAwake", boot: "#setBoot" };
+    groqKey: "#setGKey", groqModel: "#setGModel", tts: "#setTts", groqVoice: "#setGVoice", country: "#setCountry" };
+  const CHK = { wake: "#setWake", awake: "#setAwake", boot: "#setBoot", floating: "#setFloat" };
+  $("#setFloat").addEventListener("change", e => { S.settings.floating = e.target.checked; save(); if (NATIVE) NATIVE.setFloating(!!S.settings.floating); });
   function fillSettings() { for (const k in F) $(F[k]).value = S.settings[k]; for (const k in CHK) $(CHK[k]).checked = !!S.settings[k]; $("#ver").textContent = VERSION; }
   for (const k in F) $(F[k]).addEventListener($(F[k]).tagName === "SELECT" ? "change" : "input", () => {
     const el = $(F[k]); S.settings[k] = (k === "rate" || k === "pitch") ? Number(el.value) : el.value;
@@ -1117,7 +1277,13 @@ button,input,select{font:inherit;color:inherit}
   welcome();
   runScan().then(d => {
     size();
-    if (S.settings.boot) { renderScan(d, $("#bootScan"), $("#bootAdapt")); openSheet("#boot"); $("#engage").focus(); }
+    let wake = false;
+    if (NATIVE) {
+      try { wake = NATIVE.ready(); NATIVE.setFloating(!!S.settings.floating); NATIVE.keepScreenOn(!!S.settings.awake); } catch (e) {}
+      $("#wakeHelp").textContent = "Not used in the Android app. Use the floating button, or make Jarvis the default assistant and hold the home button.";
+    }
+    if (wake) { unlockAudio(); listenOnce(); }
+    else if (S.settings.boot) { renderScan(d, $("#bootScan"), $("#bootAdapt")); openSheet("#boot"); $("#engage").focus(); }
     else if (S.settings.wake) resumeWake();
     if (brain() === "offline") notice("Add your Groq key in Settings (or open your one-time setup link) to give " + S.settings.name + " a full brain and a male neural voice. Time, weather, timers, tasks and diagnostics already work.");
   });
