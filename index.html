@@ -245,10 +245,14 @@ button,input,select{font:inherit;color:inherit}
     <div class="field"><label for="setBrain">Who answers</label>
       <select id="setBrain">
         <option value="auto">Automatic (whichever key is set)</option>
+        <option value="groq">Groq (fast, free tier)</option>
         <option value="gemini">Google Gemini (free key)</option>
         <option value="claude">Claude (Anthropic API key)</option>
         <option value="offline">Offline commands only</option>
       </select></div>
+    <div class="field"><label for="setGKey">Groq API key</label><input type="password" id="setGKey" autocomplete="off" placeholder="gsk_…"></div>
+    <div class="field"><label for="setGModel">Groq model</label><input type="text" id="setGModel"></div>
+    <p class="help">Groq keys come from <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>. One key powers both the brain and the neural voice.</p>
     <div class="field"><label for="setKey">Gemini API key</label><input type="password" id="setKey" autocomplete="off" placeholder="AIza…"></div>
     <div class="field"><label for="setModel">Gemini model</label><input type="text" id="setModel"></div>
     <p class="help">Get a free Gemini key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.</p>
@@ -262,7 +266,23 @@ button,input,select{font:inherit;color:inherit}
     <div class="field"><label for="setAddress">Address me as</label><input type="text" id="setAddress" placeholder="sir"></div>
 
     <h4>Voice</h4>
-    <div class="field"><label for="setVoice">Voice</label><select id="setVoice"></select></div>
+    <div class="field"><label for="setTts">Voice engine</label>
+      <select id="setTts">
+        <option value="auto">Groq neural voice (falls back to tablet)</option>
+        <option value="device">Tablet voice only</option>
+      </select></div>
+    <div class="field"><label for="setGVoice">Neural voice</label>
+      <select id="setGVoice">
+        <option value="daniel">Daniel (male)</option>
+        <option value="troy">Troy (male)</option>
+        <option value="austin">Austin (male)</option>
+        <option value="autumn">Autumn (female)</option>
+        <option value="diana">Diana (female)</option>
+        <option value="hannah">Hannah (female)</option>
+      </select></div>
+    <p class="help">Neural voices need a Groq key and are American-accented. The first time, accept the Orpheus model terms in the <a href="https://console.groq.com/playground" target="_blank" rel="noopener">Groq playground</a> if the voice reports a terms error.</p>
+    <div class="field"><label for="setVoice">Tablet voice</label><select id="setVoice"></select></div>
+    <p class="help">For a free offline British male voice on Android, Chrome uses the system voice: Settings → Accessibility (Samsung: General management) → Text-to-speech → Preferred engine: Google → ⚙ → Install voice data → English (United Kingdom) → pick a male voice. Then choose Tablet voice only above.</p>
     <div class="field"><label for="setRate">Speed</label><input type="range" id="setRate" min="0.7" max="1.4" step="0.05"></div>
     <div class="field"><label for="setPitch">Pitch</label><input type="range" id="setPitch" min="0.5" max="1.5" step="0.05"></div>
     <div class="row"><button class="btn" type="button" id="testVoice">Test voice</button></div>
@@ -284,14 +304,15 @@ button,input,select{font:inherit;color:inherit}
 <script>
 (() => {
   "use strict";
-  const VERSION = "1.0.0";
+  const VERSION = "1.1.0";
   const $ = (s) => document.querySelector(s);
   const store = {
     get(k, d) { try { const v = localStorage.getItem("jarvis." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem("jarvis." + k, JSON.stringify(v)); } catch (e) {} }
   };
   const DEFAULTS = { name: "Jarvis", user: "", address: "sir", voice: "", rate: 1, pitch: 0.9, wake: false, awake: false, boot: true, city: "",
-    brain: "auto", geminiKey: "", geminiModel: "gemini-flash-latest", claudeKey: "", claudeModel: "claude-haiku-5-5" };
+    brain: "auto", geminiKey: "", geminiModel: "gemini-flash-latest", claudeKey: "", claudeModel: "claude-haiku-5-5",
+    groqKey: "", groqModel: "openai/gpt-oss-120b", tts: "auto", groqVoice: "daniel" };
   const S = {
     settings: Object.assign({}, DEFAULTS, store.get("settings", {})),
     tasks: store.get("tasks", []), memory: store.get("memory", []),
@@ -389,7 +410,8 @@ button,input,select{font:inherit;color:inherit}
     a.push(S.perf === "full" ? "Reactor animation at full quality for this hardware." :
       S.perf === "standard" ? "Reactor animation at balanced quality to keep things smooth." :
       lowBatt ? "Battery is low, so the reactor runs in power-saving mode until you charge." : "Lightweight reactor animation to suit this hardware.");
-    a.push(d.voice ? `Voice set to “${d.voice.name}”${/en-GB/i.test(d.voice.lang) ? " (British)" : ""}.` : "No built-in voices were found, so replies will be text only.");
+    if (S.settings.groqKey && S.settings.tts !== "device") a.push(`Voice: Groq neural voice “${(S.settings.groqVoice || "daniel").replace(/^\w/, c => c.toUpperCase())}”, with ${d.voice ? "“" + d.voice.name + "”" : "the tablet voice"} as backup.`);
+    else a.push(d.voice ? `Voice set to “${d.voice.name}”${/en-GB/i.test(d.voice.lang) ? " (British)" : ""}. Add a Groq key for a neural male voice.` : "No built-in voices were found. Add a Groq key for a neural voice.");
     if (!d.secure) a.push("This copy isn't on HTTPS, so the microphone and install features are off. Open the hosted address instead.");
     else if (!d.speechIn) a.push(d.browser.startsWith("Firefox") ? "Firefox has no speech recognition. Open this in Chrome or Samsung Internet to talk." : "This browser can't recognise speech, so you'll type and it will answer aloud.");
     else if (d.platform === "android") a.push("Tap-to-talk and wake word are on. Android may beep each time the mic restarts; that's the system, not the app.");
@@ -652,17 +674,18 @@ button,input,select{font:inherit;color:inherit}
   /* ============ brains ============ */
   function brain() {
     const s = S.settings;
+    if (s.brain === "groq") return s.groqKey ? "groq" : "offline";
     if (s.brain === "gemini") return s.geminiKey ? "gemini" : "offline";
     if (s.brain === "claude") return s.claudeKey ? "claude" : "offline";
     if (s.brain === "offline") return "offline";
-    return s.claudeKey ? "claude" : s.geminiKey ? "gemini" : "offline";
+    return s.groqKey ? "groq" : s.claudeKey ? "claude" : s.geminiKey ? "gemini" : "offline";
   }
   function updateBrainChip() {
     const b = brain(); const chip = $("#brainChip");
-    chip.textContent = "Brain: " + (b === "claude" ? "Claude" : b === "gemini" ? "Gemini" : "offline");
+    chip.textContent = "Brain: " + ({ groq: "Groq", claude: "Claude", gemini: "Gemini" }[b] || "offline");
     chip.className = "chip" + (b === "offline" ? "" : " live");
   }
-  function history() {
+  function chatHistory() {
     const out = [];
     for (const t of S.turns.slice(-14)) { const last = out[out.length - 1]; if (last && last.role === t.role) last.content += "\n" + t.content; else out.push({ role: t.role, content: t.content }); }
     while (out.length && out[0].role !== "user") out.shift();
@@ -671,7 +694,7 @@ button,input,select{font:inherit;color:inherit}
 
   async function askGemini(signal) {
     const s = S.settings;
-    const contents = history().map(t => ({ role: t.role === "assistant" ? "model" : "user", parts: [{ text: t.content }] }));
+    const contents = chatHistory().map(t => ({ role: t.role === "assistant" ? "model" : "user", parts: [{ text: t.content }] }));
     const body = { systemInstruction: { parts: [{ text: buildRules() }] }, contents,
       tools: [{ functionDeclarations: TOOLS.map(t => ({ name: t.name, description: t.description, parameters: Object.keys(t.schema.properties || {}).length ? t.schema : undefined })) }] };
     for (let round = 0; round < 5; round++) {
@@ -693,9 +716,38 @@ button,input,select{font:inherit;color:inherit}
     return `I've lost the thread there, ${addr()}. Could you ask again?`;
   }
 
+  async function askGroq(signal) {
+    const s = S.settings, model = (s.groqModel || DEFAULTS.groqModel).trim();
+    const messages = [{ role: "system", content: buildRules() }, ...chatHistory().map(t => ({ role: t.role, content: t.content }))];
+    const tools = TOOLS.map(t => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.schema } }));
+    let toolChoice = "auto";
+    for (let round = 0; round < 6; round++) {
+      const body = { model, messages, tools, tool_choice: toolChoice, temperature: 0.6, max_completion_tokens: 800 };
+      if (/gpt-oss/i.test(model)) body.reasoning_effort = "low";
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST", signal, headers: { "Content-Type": "application/json", Authorization: "Bearer " + s.groqKey.trim() }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (j.error && j.error.code === "tool_use_failed" && toolChoice !== "none") { toolChoice = "none"; continue; }
+        const e = new Error(j.error?.message || "HTTP " + r.status); e.kind = "api"; throw e;
+      }
+      const msg = j.choices?.[0]?.message || {};
+      const calls = msg.tool_calls || [];
+      if (!calls.length) return String(msg.content || "").trim();
+      messages.push({ role: "assistant", content: msg.content || "", tool_calls: calls });
+      for (const c of calls) {
+        let content;
+        try { let args = {}; try { args = JSON.parse(c.function.arguments || "{}"); } catch (e) {} content = JSON.stringify(await runTool(c.function.name, args)); }
+        catch (e) { content = "Error: " + (e.message || e); }
+        messages.push({ role: "tool", tool_call_id: c.id, content });
+      }
+    }
+    return `I've lost the thread there, ${addr()}. Could you ask again?`;
+  }
+
   async function askClaude(signal) {
     const s = S.settings;
-    const messages = history().map(t => ({ role: t.role, content: t.content }));
+    const messages = chatHistory().map(t => ({ role: t.role, content: t.content }));
     const tools = TOOLS.map(t => ({ name: t.name, description: t.description, input_schema: t.schema }));
     for (let round = 0; round < 5; round++) {
       const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -735,7 +787,7 @@ button,input,select{font:inherit;color:inherit}
     if ((m = text.match(/^remember(?: that)?\s+(.+)/i))) { remember(m[1]); return "I'll remember that."; }
     if (/(what'?s|what is) on my (list|tasks)|my tasks/.test(t)) { const o = S.tasks.filter(x => !x.done).map(x => x.text); return o.length ? `You have ${o.length} open: ${o.join("; ")}.` : "Your list is clear."; }
     if (/brief/.test(t)) return briefingOffline();
-    return `I'm on offline commands at the moment, ${addr()}. I can do the time, weather, timers, tasks and diagnostics. Add a Gemini key in Settings and I can hold a proper conversation.`;
+    return `I'm on offline commands at the moment, ${addr()}. I can do the time, weather, timers, tasks and diagnostics. Add a Groq key in Settings and I can hold a proper conversation.`;
   }
   async function briefingOffline() {
     const hr = new Date().getHours(); let s = (hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening") + `, ${addr()}. It's ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. `;
@@ -757,7 +809,7 @@ button,input,select{font:inherit;color:inherit}
     let reply = "";
     try {
       const b = brain();
-      reply = b === "claude" ? await askClaude(ctl.signal) : b === "gemini" ? await askGemini(ctl.signal) : await offline(text);
+      reply = b === "groq" ? await askGroq(ctl.signal) : b === "claude" ? await askClaude(ctl.signal) : b === "gemini" ? await askGemini(ctl.signal) : await offline(text);
     } catch (e) {
       if (e && e.name === "AbortError") reply = "";
       else if (e && e.kind === "api") reply = "The model returned an error: " + e.message + " Check your key and model name in Settings.";
@@ -776,31 +828,53 @@ button,input,select{font:inherit;color:inherit}
   }
 
   /* ============ voice out ============ */
-  const PREFERRED = ["Google UK English Male", "Daniel", "Arthur", "Microsoft Ryan", "Microsoft George", "Oliver", "en-gb-x-rjs", "en-gb-x-gbd", "en-GB-language", "Microsoft Thomas"];
+  // Device voices. Male British voices first; known female voices are skipped in automatic mode.
+  const PREFERRED = ["Google UK English Male", "Daniel", "Arthur", "Microsoft Ryan", "Microsoft George", "Oliver", "en-gb-x-rjs", "en-gb-x-gbd", "en-gb-x-gbb", "Microsoft Thomas"];
+  const FEMALE = /female|samantha|karen|serena|kate|martha|hazel|susan|libby|sonia|moira|tessa|fiona|victoria|stephanie|catherine|amy|emma|zira|aria|jenny|en-gb-x-gba|en-gb-x-gbc|en-gb-x-gbg/i;
   let voices = [];
   function pickVoice(list) {
     list = list || voices;
     if (S.settings.voice) { const v = list.find(x => x.name === S.settings.voice); if (v) return v; }
     for (const p of PREFERRED) { const v = list.find(x => x.name.includes(p) || (x.voiceURI || "").includes(p)); if (v) return v; }
-    return list.find(v => /en[-_]GB/i.test(v.lang) && /male/i.test(v.name)) || list.find(v => /en[-_]GB/i.test(v.lang)) || list.find(v => /^en/i.test(v.lang)) || list[0] || null;
+    const ok = list.filter(v => !FEMALE.test(v.name + " " + (v.voiceURI || "")));
+    return ok.find(v => /en[-_]GB/i.test(v.lang) && /male/i.test(v.name)) || ok.find(v => /en[-_]GB/i.test(v.lang)) || ok.find(v => /^en/i.test(v.lang)) ||
+      list.find(v => /en[-_]GB/i.test(v.lang)) || list.find(v => /^en/i.test(v.lang)) || list[0] || null;
   }
   function loadVoices() {
     if (!synth) return;
     voices = synth.getVoices();
     const sel = $("#setVoice"); sel.textContent = "";
-    const auto = document.createElement("option"); auto.value = ""; auto.textContent = "Automatic (best British voice)"; sel.append(auto);
+    const auto = document.createElement("option"); auto.value = ""; auto.textContent = "Automatic (British male if available)"; sel.append(auto);
     voices.slice().sort((a, b) => (/en[-_]GB/i.test(b.lang) - /en[-_]GB/i.test(a.lang)) || a.name.localeCompare(b.name))
       .forEach(v => { const o = document.createElement("option"); o.value = v.name; o.textContent = `${v.name} (${v.lang})`; sel.append(o); });
     sel.value = S.settings.voice;
     if (S.scan) { S.scan.voices = voices; S.scan.voice = pickVoice(voices); }
   }
   if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
-  let speakToken = 0;
+
+  let speakToken = 0, ttsCtl = null, curSource = null, analyser = null, groqVoiceDown = false;
+  const cleanSpeech = (text) => String(text).replace(/https?:\/\/\S+/g, "").replace(/[*_#`>|]/g, "").replace(/°C?/g, " degrees").replace(/\s+/g, " ").trim();
+  function voiceEngine() {
+    const s = S.settings;
+    if (s.tts === "device" || !s.groqKey || groqVoiceDown) return "device";
+    return "groq";
+  }
   function speak(text) {
+    const clean = cleanSpeech(text);
+    if (!clean) return Promise.resolve();
+    if (voiceEngine() === "groq") {
+      return speakGroq(clean).catch(e => {
+        if (e && e.name === "AbortError") return;
+        groqVoiceDown = true;
+        notice("Groq voice didn't work (" + (e.message || e) + "). Using the tablet voice for now. If it mentions terms, accept the Orpheus model terms in the Groq console, then reopen the app.");
+        return speakDevice(clean);
+      });
+    }
+    return speakDevice(clean);
+  }
+  function speakDevice(clean) {
     return new Promise(resolve => {
       if (!synth) return resolve();
-      const clean = String(text).replace(/https?:\/\/\S+/g, "").replace(/[*_#`>|]/g, "").replace(/°/g, " degrees").replace(/\s+/g, " ").trim();
-      if (!clean) return resolve();
       synth.cancel();
       const my = ++speakToken; const v = pickVoice();
       const chunks = clean.match(/[^.!?]+[.!?]*\s*/g) || [clean];
@@ -817,11 +891,73 @@ button,input,select{font:inherit;color:inherit}
       setTimeout(() => { if (my === speakToken && speaking && !synth.speaking && !synth.pending) finish(); }, 4000 + clean.length * 90);
     });
   }
-  function stopSpeaking() { if (synth && (synth.speaking || synth.pending)) { speakToken++; synth.cancel(); } speaking = false; level = 0; }
+  // Groq neural voice (Orpheus): max ~200 characters per request, so speak in pieces and fetch the next piece while one plays.
+  function chunkText(text, max) {
+    const out = []; let cur = "";
+    for (const part of text.match(/[^.!?;,]+[.!?;,]*\s*/g) || [text]) {
+      if ((cur + part).length <= max) { cur += part; continue; }
+      if (cur.trim()) out.push(cur.trim());
+      if (part.length <= max) { cur = part; continue; }
+      let rest = part; while (rest.length > max) { const cut = rest.lastIndexOf(" ", max) > 40 ? rest.lastIndexOf(" ", max) : max; out.push(rest.slice(0, cut).trim()); rest = rest.slice(cut); } cur = rest;
+    }
+    if (cur.trim()) out.push(cur.trim());
+    return out;
+  }
+  function audioCtx() {
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) throw new Error("no audio support");
+    beep.ac = beep.ac || new AC();
+    if (beep.ac.state === "suspended") beep.ac.resume();
+    if (!analyser) { analyser = beep.ac.createAnalyser(); analyser.fftSize = 512; analyser.connect(beep.ac.destination); }
+    return beep.ac;
+  }
+  async function speakGroq(clean) {
+    const ac = audioCtx();
+    stopSpeaking();
+    const my = ++speakToken; ttsCtl = new AbortController(); const signal = ttsCtl.signal;
+    const voice = S.settings.groqVoice || DEFAULTS.groqVoice, key = S.settings.groqKey.trim();
+    const chunks = chunkText(clean, 190);
+    const fetchChunk = (input) => fetch("https://api.groq.com/openai/v1/audio/speech", {
+      method: "POST", signal, headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
+      body: JSON.stringify({ model: "canopylabs/orpheus-v1-english", voice, input, response_format: "wav" })
+    }).then(async r => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error?.message || "HTTP " + r.status); }
+      return ac.decodeAudioData(await r.arrayBuffer());
+    });
+    speaking = true; setState("speaking");
+    let next = fetchChunk(chunks[0]);
+    try {
+      for (let i = 0; i < chunks.length; i++) {
+        let buf;
+        try { buf = await next; } catch (e) { if (i === 0) throw e; break; }
+        if (my !== speakToken) return;
+        if (i + 1 < chunks.length) { next = fetchChunk(chunks[i + 1]); next.catch(() => {}); }
+        await new Promise(res => {
+          const src = ac.createBufferSource(); src.buffer = buf; src.connect(analyser);
+          curSource = src; src.onended = () => { if (curSource === src) curSource = null; res(); }; src.start();
+        });
+        if (my !== speakToken) return;
+      }
+    } finally {
+      if (my === speakToken) { speaking = false; level = 0; if (!busy) setState("idle"); }
+    }
+  }
+  function stopSpeaking() {
+    speakToken++;
+    if (synth && (synth.speaking || synth.pending)) synth.cancel();
+    try { ttsCtl && ttsCtl.abort(); } catch (e) {}
+    try { curSource && curSource.stop(); } catch (e) {}
+    curSource = null; speaking = false; level = 0;
+  }
+  function voiceLevel() {
+    if (!analyser || !curSource) return null;
+    const a = new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(a);
+    let sum = 0; for (let i = 0; i < a.length; i++) { const v = (a[i] - 128) / 128; sum += v * v; }
+    return Math.min(1, Math.sqrt(sum / a.length) * 4);
+  }
   let audioUnlocked = false;
   function unlockAudio() {
     if (audioUnlocked) return; audioUnlocked = true;
-    try { const AC = window.AudioContext || window.webkitAudioContext; if (AC) { beep.ac = beep.ac || new AC(); beep.ac.resume && beep.ac.resume(); } } catch (e) {}
+    try { audioCtx(); } catch (e) {}
     keepAwake();
   }
 
@@ -898,12 +1034,15 @@ button,input,select{font:inherit;color:inherit}
 
   // settings
   const F = { name: "#setName", user: "#setUser", address: "#setAddress", voice: "#setVoice", rate: "#setRate", pitch: "#setPitch", city: "#setCity",
-    brain: "#setBrain", geminiKey: "#setKey", geminiModel: "#setModel", claudeKey: "#setCKey", claudeModel: "#setCModel" };
+    brain: "#setBrain", geminiKey: "#setKey", geminiModel: "#setModel", claudeKey: "#setCKey", claudeModel: "#setCModel",
+    groqKey: "#setGKey", groqModel: "#setGModel", tts: "#setTts", groqVoice: "#setGVoice" };
   const CHK = { wake: "#setWake", awake: "#setAwake", boot: "#setBoot" };
   function fillSettings() { for (const k in F) $(F[k]).value = S.settings[k]; for (const k in CHK) $(CHK[k]).checked = !!S.settings[k]; $("#ver").textContent = VERSION; }
-  for (const k in F) $(F[k]).addEventListener(k === "brain" || k === "voice" ? "change" : "input", () => {
+  for (const k in F) $(F[k]).addEventListener($(F[k]).tagName === "SELECT" ? "change" : "input", () => {
     const el = $(F[k]); S.settings[k] = (k === "rate" || k === "pitch") ? Number(el.value) : el.value;
-    if (k === "name") applyName(); updateBrainChip(); save();
+    if (k === "name") applyName();
+    if (k === "groqKey" || k === "tts" || k === "groqVoice") groqVoiceDown = false;
+    updateBrainChip(); save();
   });
   $("#setWake").addEventListener("change", e => { S.settings.wake = e.target.checked; save(); if (S.settings.wake) { micDead = !SR; resumeWake(); } else stopWake(); });
   $("#setAwake").addEventListener("change", e => { S.settings.awake = e.target.checked; save(); S.settings.awake ? keepAwake() : releaseAwake(); });
@@ -937,6 +1076,7 @@ button,input,select{font:inherit;color:inherit}
     const step = S.perf === "light" ? 3 : S.perf === "standard" ? 2 : 1;
     const speed = (reduce ? 0.15 : 1) * step;
     const think = state === "thinking", color = think ? COL.warm : COL.accent;
+    const vl = state === "speaking" ? voiceLevel() : null; if (vl != null) level = Math.max(level, vl);
     const target = state === "speaking" ? 0.45 + 0.55 * level : state === "listening" ? 0.55 + 0.25 * Math.sin(t / 180) : think ? 0.35 : state === "wake" ? 0.22 : 0.15;
     smooth += (target - smooth) * 0.12 * step; level *= Math.pow(0.9, step);
     rot += (think ? 0.035 : state === "idle" ? 0.004 : 0.012) * speed;
@@ -962,6 +1102,16 @@ button,input,select{font:inherit;color:inherit}
   requestAnimationFrame(frame);
 
   /* ============ boot ============ */
+  // One-time setup link: #groq=KEY (also gemini= / claude=). The key is saved on this device and removed from the address bar.
+  (function readSetupLink() {
+    const h = location.hash.slice(1); if (!h) return;
+    const p = new URLSearchParams(h); let saved = [];
+    if (p.get("groq")) { S.settings.groqKey = p.get("groq").trim(); saved.push("Groq"); }
+    if (p.get("gemini")) { S.settings.geminiKey = p.get("gemini").trim(); saved.push("Gemini"); }
+    if (p.get("claude")) { S.settings.claudeKey = p.get("claude").trim(); saved.push("Claude"); }
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { console.warn("setup link: could not clear address", e); }
+    if (saved.length) { save(); setTimeout(() => notice(saved.join(" and ") + " key saved on this tablet. It's stored only here."), 400); }
+  })();
   applyName(); renderRail(); tickClock(); updateBrainChip(); setState("idle");
   if (S.turns.length) { S.turns.slice(-6).forEach(t => addMsg(t.role === "user" ? "user" : "ai", t.content)); }
   welcome();
@@ -969,7 +1119,7 @@ button,input,select{font:inherit;color:inherit}
     size();
     if (S.settings.boot) { renderScan(d, $("#bootScan"), $("#bootAdapt")); openSheet("#boot"); $("#engage").focus(); }
     else if (S.settings.wake) resumeWake();
-    if (brain() === "offline") notice("Add your free Gemini key in Settings to give " + S.settings.name + " a full conversational brain. Time, weather, timers, tasks and diagnostics already work.");
+    if (brain() === "offline") notice("Add your Groq key in Settings (or open your one-time setup link) to give " + S.settings.name + " a full brain and a male neural voice. Time, weather, timers, tasks and diagnostics already work.");
   });
   $("#engage").onclick = () => {
     closeSheet("#boot"); unlockAudio();

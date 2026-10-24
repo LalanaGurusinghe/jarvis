@@ -1,5 +1,5 @@
 // Jarvis service worker: keeps the app shell available offline and shows timer notifications.
-const CACHE = "jarvis-v1.0.0";
+const CACHE = "jarvis-v1.1.0";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png", "./icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {

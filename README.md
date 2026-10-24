@@ -5,7 +5,7 @@ A personal voice assistant for a tablet, built as an installable web app (PWA). 
 ## What it does
 
 - **Talk or type.** Tap the core to speak, or turn on the wake word and say "Jarvis, …".
-- **Answers out loud** in the best British voice the tablet has (changeable in Settings).
+- **Answers out loud** with a Groq neural male voice (Daniel, Troy or Austin), or the tablet's own voice as a free offline backup.
 - **Timers** with sound, vibration and background notifications.
 - **Tasks and memory** kept on the tablet.
 - **Live weather** for your location or a set city (Open-Meteo, no key needed).
@@ -17,11 +17,12 @@ A personal voice assistant for a tablet, built as an installable web app (PWA). 
 
 | Option | Key | Cost |
 |---|---|---|
+| Groq (default) | [Groq console](https://console.groq.com/keys) | Free tier; also powers the neural voice |
 | Google Gemini | [AI Studio](https://aistudio.google.com/apikey) | Free tier |
 | Claude | [Claude Console](https://console.anthropic.com/) | Pay per use |
 | Offline | none | Free, commands only |
 
-Keys are stored only in the tablet's browser storage and are sent only to their own provider.
+Set a key in Settings, or open the app once with `#groq=YOUR_KEY` after the address. Keys are stored only in the tablet's browser storage and are sent only to their own provider.
 
 ## Install on a tablet
 
