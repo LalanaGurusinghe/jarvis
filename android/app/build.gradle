@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+def runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+
+android {
+    namespace 'lk.lalana.jarvis'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "lk.lalana.jarvis"
+        minSdk 26
+        targetSdk 34
+        versionCode runNumber
+        versionName "2.0." + runNumber
+    }
+
+    // The signing key never lives in the repo: the build workflow supplies it through environment variables.
+    def ksPath = System.getenv("JARVIS_KEYSTORE")
+    signingConfigs {
+        release {
+            if (ksPath) {
+                storeFile file(ksPath)
+                storePassword System.getenv("JARVIS_KEY_PASSWORD")
+                keyAlias "jarvis"
+                keyPassword System.getenv("JARVIS_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig ksPath ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+}

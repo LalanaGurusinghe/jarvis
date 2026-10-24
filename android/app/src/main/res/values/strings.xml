@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="a11y_label">Jarvis screen control</string>
+    <string name="notif_label">Jarvis notifications</string>
+    <string name="a11y_desc">Lets Jarvis read the screen and tap, type and scroll in other apps when you ask it to, and shows a floating button to call Jarvis from anywhere. Jarvis asks before tapping anything that sends, pays, posts or deletes.</string>
+</resources>
